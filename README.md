@@ -1,14 +1,10 @@
 # LeetDuel
 
-LeetCode-style problem practice platform + real-time 1v1 ranked duels (ELO-matched), built as a microservices system deliberately covering every major [system design primer](https://github.com/donnemartin/system-design-primer) component: async messaging, caching, service-to-service communication, real-time client-server-client push, sandboxed code execution, container orchestration, and observability.
+LeetCode-style problem practice platform with real-time 1v1 ELO-matched duels. Microservices, async messaging, polyglot persistence, WebSocket real-time, Kubernetes deployment.
 
-**Status: design/planning phase.** No application code yet — see `goals.md` for the full architecture and `LEARN_AND_BUILD.md` for the learning + build roadmap. Local infra (Postgres, MongoDB, Redis, RabbitMQ + their admin UIs) is defined and runnable.
+Status: design/planning phase. No application code yet. Full design in `goals.md`, build plan in `LEARN_AND_BUILD.md`. Local infra runnable now.
 
-## Why this project exists
-
-Built as a resume/interview-prep project targeting backend/systems engineering roles — every design decision is made to be defensible in a systems design interview, not just to ship a feature. See `CLAUDE.md` for the standing "explain the why" convention used throughout this repo's history.
-
-## Architecture at a glance
+## Architecture
 
 | Service | Responsibility | Store |
 |---|---|---|
@@ -23,16 +19,13 @@ Built as a resume/interview-prep project targeting backend/systems engineering r
 | WS Gateway Service | WebSocket connections, Redis pub/sub fanout | Redis |
 | Leaderboard Service | ranked leaderboard from match results | Redis |
 
-**Async backbone:** RabbitMQ (task queues + topic-exchange event fanout). **Data:** polyglot — Postgres for relational/transactional core, MongoDB for high-write variable-shape submission results, Redis for hot/ephemeral state (matching queue, leaderboard, WS sessions, cache). Full reasoning for every choice, including what was deliberately left out (Kafka, distributed tracing, circuit breakers) and why, is in `goals.md`.
+Async: RabbitMQ (task queues + topic-exchange fanout). Data: Postgres (relational core), MongoDB (submission results), Redis (matching queue, leaderboard, WS sessions, cache). Deploy target: Kubernetes, Prometheus + Grafana for metrics.
 
-**Deployment target:** Kubernetes, with Prometheus + Grafana for observability.
+## Repo contents
 
-## Repo contents (current)
-
-- `goals.md` — full design discussion: architecture, matchmaking algorithm, duel flow, data strategy, deployment, and what's still open.
-- `LEARN_AND_BUILD.md` — learning resources per topic, followed by a phase-by-phase build plan from a blank folder to a deployed product.
-- `CLAUDE.md` — standing instruction for AI-assisted work in this repo: always explain the "why," not just the "what."
-- `docker-compose.infra.yml` — local dev infra: Postgres, MongoDB, Redis, RabbitMQ, plus admin/observability UIs (pgAdmin, Mongo Express, RedisInsight, RabbitMQ management console).
+- `goals.md` — architecture, matchmaking algorithm, duel flow, data strategy, open questions.
+- `LEARN_AND_BUILD.md` — learning resources + phase-by-phase build plan.
+- `docker-compose.infra.yml` — local infra: Postgres, MongoDB, Redis, RabbitMQ + admin UIs.
 
 ## Running local infra
 
@@ -51,4 +44,4 @@ All credentials above are throwaway local-dev defaults, not used anywhere outsid
 
 ## Roadmap
 
-Phased build order (details in `LEARN_AND_BUILD.md`): foundations (auth, gateway, user service) → core judge loop (practice mode) → ELO + matchmaking → real-time duel (WebSocket) → leaderboard/profile → React frontend → Kubernetes deployment → observability.
+Foundations → core judge loop → ELO + matchmaking → real-time duel → leaderboard/profile → frontend → Kubernetes → observability. Details in `LEARN_AND_BUILD.md`.
