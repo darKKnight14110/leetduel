@@ -17,18 +17,18 @@ Full platform, built in phases. Each phase independently demoable and resume-wor
 |---|---|---|
 | API Gateway | Spring Cloud Gateway, JWT validation, routing, rate limiting | — |
 | Auth Service | signup/login, JWT issuance (OAuth2/Spring Security) | Postgres |
-| User/Profile Service | profile, current ELO, match history view | Postgres |
+| User/Profile Service | profile, ELO + external ratings + duel stats; consumes `match.completed` to apply ELO delta and update W/L/D counters (sole writer of ELO) | Postgres |
 | Problem Service | problem CRUD, test cases, tags/difficulty | Postgres |
 | Submission Service | accepts code, publishes judge job | Postgres (metadata) |
 | Judge Worker (pool) | consumes RabbitMQ job, spins Docker sandbox, runs code vs test cases, scores, emits result | MongoDB (per-test-case output/logs, code snapshot) |
 | Matchmaking Service | RabbitMQ join queue in, Redis sorted-set expanding-window ELO pairing | Redis (matching index) |
-| Duel/Match Service | owns live match lifecycle, both players' progress, decides winner, triggers ELO update | Postgres (match record) |
+| Duel/Match Service | owns live match lifecycle, both players' progress, decides winner, computes ELO delta (has both ratings from match creation, no cross-service lookup needed) | Postgres (match record) |
 | WS Gateway Service | holds client WebSocket connections, fanout via Redis pub/sub, routes opponent progress via Redis `matchId -> connectionIds` | Redis (pub/sub, session map) |
 | Leaderboard Service | consumes match-completed events off RabbitMQ, maintains ranked leaderboard | Redis (sorted set) |
 
 ## Async backbone (revised — Kafka dropped as overkill for this project's actual scale)
 
-- **RabbitMQ** — does everything async: judge job queue (task-queue semantics, worker pool consumes), matchmaking join-request queue, and match event fanout via a topic exchange (multiple bound queues: Duel Service, WS Gateway, Leaderboard Service each get `match.created` / `match.completed` / `duel.progress`).
+- **RabbitMQ** — does everything async: judge job queue (task-queue semantics, worker pool consumes), matchmaking join-request queue, and match event fanout via a topic exchange (multiple bound queues: Duel Service, WS Gateway, and Leaderboard Service each get `match.created` / `match.completed` / `duel.progress`; User/Profile Service binds only `match.completed`, to apply the ELO delta and duel counters).
 - **Redis** — matching index (sorted set by ELO), leaderboard (sorted set), WS session/connection registry + pub/sub for cross-instance fanout, general cache (hot problem statements, user profiles).
 - Explicit trade-off accepted: no Kafka means no durable event replay / long retention / event-sourcing story. Fine at this scale — the two remaining tools (RabbitMQ, Redis) each still have a genuine, explainable reason for being there, which was the actual goal (demonstrating *when/why* to reach for a tool, not raw scale).
 
@@ -62,7 +62,8 @@ Expanding-window ELO matching (like chess.com/League):
 3. Judge Worker scores → result to RabbitMQ → Duel Service updates that player's progress % in match record → republishes `duel.progress` on topic exchange.
 4. WS Gateway consumes `duel.progress`, looks up opponent's connection via Redis, pushes **progress bar only** (no code, no submission counts — preserves competitive integrity, keeps payload simple).
 5. **Win condition:** first to pass 100% test cases wins immediately, match closes to further scoring. If time limit expires with no 100%, higher progress % wins; exact tie = draw.
-6. On completion: Duel Service computes ELO delta (standard ELO formula, K-factor ~32), updates Postgres, publishes `match.completed` → Leaderboard Service updates Redis sorted set → WS Gateway pushes final result to both clients.
+6. On completion: Duel Service computes ELO delta (standard ELO formula, K-factor ~32) using each player's rating captured at match creation, updates its own match record, publishes `match.completed` (winner/loser/draw, both ELO deltas, both players' ELO-at-match-time) → User/Profile Service applies the delta and duel counters to its own row (sole writer of ELO - Duel Service never writes into Profile's table) → Leaderboard Service updates Redis sorted set → WS Gateway pushes final result to both clients.
+   - Opponent's ELO-at-match-time (not their live post-match ELO) is what Profile Service sums into `sum_opp_elo_won/lost/drawn` - using live ELO would make the aggregate depend on when it's read, not what actually happened in that match.
 
 ## Deployment
 
