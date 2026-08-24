@@ -2,14 +2,18 @@ package com.leetduel.auth;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.util.TimeZone;
 
-// @EnableScheduling backs OutboxRelay's polling - see OutboxRelay for why a
-// poller instead of an AFTER_COMMIT listener.
+// @EnableAsync backs EmailService's @Async send methods - see EmailService
+// for why running those off the request thread matters (it's what actually
+// closes the account-enumeration timing gap in forgot-password/resend, not
+// just a performance nicety).
 @SpringBootApplication
 @EnableScheduling
+@EnableAsync
 public class AuthServiceApplication {
 
 	public static void main(String[] args) {
