@@ -2,7 +2,7 @@
 
 LeetCode-style problem practice platform with real-time 1v1 ELO-matched duels. Microservices, async messaging, polyglot persistence, WebSocket real-time, Kubernetes deployment.
 
-Status: design/planning phase. No application code yet. Full design in `goals.md`, build plan in `LEARN_AND_BUILD.md`. Local infra runnable now.
+Status: early build phase. Local infra running, Auth Service scaffolded. Full design in `docs/goals.md`, build plan in `docs/LEARN_AND_BUILD.md`.
 
 ## Architecture
 
@@ -23,9 +23,11 @@ Async: RabbitMQ (task queues + topic-exchange fanout). Data: Postgres (relationa
 
 ## Repo contents
 
-- `goals.md` — architecture, matchmaking algorithm, duel flow, data strategy, open questions.
-- `LEARN_AND_BUILD.md` — learning resources + phase-by-phase build plan.
+- `docs/goals.md` — architecture, matchmaking algorithm, duel flow, data strategy, open questions.
+- `docs/LEARN_AND_BUILD.md` — learning resources + phase-by-phase build plan.
 - `docker-compose.infra.yml` — local infra: Postgres, MongoDB, Redis, RabbitMQ + admin UIs.
+- `services/` — one Gradle/Spring Boot project per microservice.
+  - `auth-service/` — signup/login, JWT issuance (scaffolded, not yet implemented).
 
 ## Running local infra
 
@@ -44,4 +46,4 @@ All credentials above are throwaway local-dev defaults, not used anywhere outsid
 
 ## Roadmap
 
-Foundations → core judge loop → ELO + matchmaking → real-time duel → leaderboard/profile → frontend → Kubernetes → observability. Details in `LEARN_AND_BUILD.md`.
+Foundations → core judge loop → ELO + matchmaking → real-time duel → leaderboard/profile → frontend → Kubernetes → observability. Details in `docs/LEARN_AND_BUILD.md`.
