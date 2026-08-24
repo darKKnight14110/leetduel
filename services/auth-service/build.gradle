@@ -25,6 +25,7 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	implementation 'org.springframework.boot:spring-boot-starter-flyway'
 	implementation 'org.flywaydb:flyway-database-postgresql'
+	implementation 'org.springframework.boot:spring-boot-starter-amqp'
 	compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'org.postgresql:postgresql'
 	annotationProcessor 'org.projectlombok:lombok'
@@ -40,4 +41,8 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	// Same UTC-pin reasoning as AuthServiceApplication.main() - but @SpringBootTest
+	// boots the context directly, bypassing main(), so the fix has to live here
+	// too for the test JVM specifically.
+	systemProperty 'user.timezone', 'UTC'
 }

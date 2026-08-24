@@ -25,3 +25,6 @@ dist/
 
 # Logs
 *.log
+
+# Playwright MCP test-run scratch output
+.playwright-mcp/
