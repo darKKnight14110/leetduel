@@ -10,9 +10,8 @@ type Mode = "login" | "signup";
 
 // Real signup + login against auth-service - the one thing on this whole
 // site with a working backend, per the task brief. No Google button here:
-// GoogleAuthService needs a real GOOGLE_OAUTH_CLIENT_ID env var this demo
-// doesn't have set, and a button that fails on click is worse than no
-// button (see design-taste-frontend skill 4.5 on honest UI states).
+// Google Sign-In was removed from auth-service entirely (email/password +
+// email verification only).
 export function AuthCard() {
   const [mode, setMode] = useState<Mode>("login");
   const [loading, setLoading] = useState(false);

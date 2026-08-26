@@ -7,10 +7,6 @@ import com.leetduel.auth.exception.InvalidCredentialsException;
 import com.leetduel.auth.exception.InvalidOrExpiredTokenException;
 import com.leetduel.auth.exception.InvalidRefreshTokenException;
 import com.leetduel.auth.exception.UsernameAlreadyExistsException;
-import com.leetduel.auth.oauth.GoogleIdentity;
-import com.leetduel.auth.oauth.GoogleAuthService;
-import com.leetduel.auth.oauth.OAuthIdentity;
-import com.leetduel.auth.oauth.OAuthIdentityRepository;
 import com.leetduel.auth.outbox.OutboxEvent;
 import com.leetduel.auth.outbox.OutboxEventRepository;
 import com.leetduel.auth.refresh.RefreshTokenService;
@@ -45,17 +41,14 @@ public class AuthService {
     // just be indirection without a reason to vary it.
     private static final Duration EMAIL_VERIFICATION_TTL = Duration.ofHours(24);
     private static final Duration PASSWORD_RESET_TTL = Duration.ofHours(1);
-    private static final String GOOGLE_PROVIDER = "GOOGLE";
 
     private final UserRepository userRepository;
     private final OutboxEventRepository outboxEventRepository;
-    private final OAuthIdentityRepository oauthIdentityRepository;
     private final VerificationTokenRepository verificationTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
     private final EmailService emailService;
-    private final GoogleAuthService googleAuthService;
     private final ObjectMapper objectMapper;
 
     public record AuthResult(String accessToken, String refreshToken) {
@@ -98,9 +91,11 @@ public class AuthService {
         User user = userRepository.findByUsernameOrEmail(identifier, identifier.toLowerCase(Locale.ROOT))
                 .orElseThrow(InvalidCredentialsException::new);
 
-        // A Google-only account has no passwordHash to check against - same
-        // exception as a wrong password, so the response never reveals that
-        // this identifier belongs to an OAuth-only account.
+        // Null-guard, not a dead branch: passwordHash stays nullable at the
+        // DB level (see User.passwordHash) even though every current signup
+        // path always sets it - failing closed here rather than trusting
+        // that invariant is cheap insurance against a future write path
+        // that forgets to set it.
         if (user.getPasswordHash() == null || !passwordEncoder.matches(rawPassword, user.getPasswordHash())) {
             throw new InvalidCredentialsException();
         }
@@ -152,9 +147,7 @@ public class AuthService {
     // Deliberately silent and identically-timed-feeling for "no such email"
     // and "email exists" - the classic user-enumeration hole in password
     // reset flows is a response (status, body, or timing) that differs
-    // based on account existence. A Google-only account (no passwordHash)
-    // is treated the same way: it has nothing to reset, so it's skipped,
-    // but the caller can't tell that from the response either.
+    // based on account existence.
     @Transactional
     public void forgotPassword(String email) {
         userRepository.findByEmail(email.toLowerCase(Locale.ROOT))
@@ -181,66 +174,6 @@ public class AuthService {
         // every existing refresh token, everywhere, dies here rather than
         // waiting out its 30-day expiry.
         refreshTokenService.revokeAllForUser(user.getId());
-    }
-
-    @Transactional
-    @SneakyThrows
-    public AuthResult googleLogin(String idTokenString) {
-        GoogleIdentity identity = googleAuthService.verify(idTokenString);
-
-        Optional<OAuthIdentity> existingLink =
-                oauthIdentityRepository.findByProviderAndProviderUserId(GOOGLE_PROVIDER, identity.subject());
-
-        User user;
-        if (existingLink.isPresent()) {
-            user = userRepository.findById(existingLink.get().getUserId())
-                    .orElseThrow(() -> new IllegalStateException("oauth_identities row references a missing user"));
-        } else {
-            String normalizedEmail = identity.email().toLowerCase(Locale.ROOT);
-            Optional<User> byEmail = userRepository.findByEmail(normalizedEmail);
-
-            if (byEmail.isPresent()) {
-                User existingUser = byEmail.get();
-                // Refuse to auto-link if that account has never verified
-                // ITS OWN email - account pre-hijacking (Frans Rosen's
-                // "OAuth account hijacking" pattern): an attacker signs up
-                // locally with the victim's real email and a password only
-                // the attacker knows, leaves it unverified, then waits. If
-                // this were allowed to link, the victim's first Google
-                // sign-in would hand them a session on an account the
-                // attacker still holds the password to. Google verifying
-                // the email proves the email address - it says nothing
-                // about who created this particular LeetDuel row with it.
-                // Only a row that already completed the app's OWN
-                // verification (proof someone controlled the inbox through
-                // this app's flow) is safe to trust.
-                if (!existingUser.isEmailVerified()) {
-                    throw new EmailAlreadyExistsException(normalizedEmail);
-                }
-                // Linking, not creating: this email already has a verified
-                // LeetDuel account. Safe to attach Google to it - both
-                // sides have now independently proven control of the same
-                // address.
-                user = existingUser;
-            } else {
-                user = new User();
-                user.setEmail(normalizedEmail);
-                user.setUsername(generateUniqueUsername(normalizedEmail));
-                user.setEmailVerified(true);
-                // passwordHash left null - this account has no local
-                // password until/unless the user sets one later.
-                user = userRepository.save(user);
-                writeUserCreatedOutboxEvent(user.getId());
-            }
-
-            OAuthIdentity link = new OAuthIdentity();
-            link.setUserId(user.getId());
-            link.setProvider(GOOGLE_PROVIDER);
-            link.setProviderUserId(identity.subject());
-            oauthIdentityRepository.save(link);
-        }
-
-        return issueTokenPair(user);
     }
 
     private AuthResult issueTokenPair(User user) {
@@ -278,35 +211,12 @@ public class AuthService {
 
     private void writeUserCreatedOutboxEvent(UUID userId) throws Exception {
         // Written in the SAME transaction as the user row (transactional
-        // outbox) - see OutboxRelay for the full reasoning. Shared by local
-        // signup and new-account Google login: user-service needs a profile
-        // row created either way, and it doesn't care which path made the
-        // account.
+        // outbox) - see OutboxRelay for the full reasoning: user-service
+        // needs a profile row created for every new account, and this is
+        // the one place account creation happens.
         OutboxEvent outboxEvent = new OutboxEvent();
         outboxEvent.setEventType("user.created");
         outboxEvent.setPayload(objectMapper.writeValueAsString(new UserCreatedEvent(userId)));
         outboxEventRepository.save(outboxEvent);
-    }
-
-    // Derives a candidate username from the Google account's email
-    // local-part since Google never gives this service one - collisions are
-    // resolved with a random suffix rather than failing the signup outright.
-    private String generateUniqueUsername(String email) {
-        String localPart = email.substring(0, email.indexOf('@'));
-        String base = localPart.replaceAll("[^a-zA-Z0-9_]", "");
-        if (base.isEmpty()) {
-            base = "user";
-        }
-        if (base.length() > 20) {
-            base = base.substring(0, 20);
-        }
-
-        String candidate = base;
-        int attempts = 0;
-        while (userRepository.existsByUsername(candidate) && attempts < 5) {
-            candidate = base + "-" + UUID.randomUUID().toString().substring(0, 6);
-            attempts++;
-        }
-        return candidate;
     }
 }

@@ -37,17 +37,18 @@ public class User {
     @Column(nullable = false, unique = true, length = 255)
     private String email;
 
-    // Nullable: a Google-only signup never has a local password. "does this
-    // account have a usable password" is an application-level check
-    // (passwordHash != null), not something the DB enforces here - see
-    // V3 migration for why a DB CHECK can't express the full invariant.
+    // Nullable at the DB level (see V3 migration, added back when this
+    // service still supported Google-only accounts with no local
+    // password). Every signup path today always sets this, but the column
+    // is left nullable rather than tightened back to NOT NULL - no data
+    // ever populated it as null, so there's nothing to backfill, but
+    // there's also no functional upside to the extra migration right now.
     @Column(name = "password_hash")
     private String passwordHash;
 
-    // True immediately for a Google signup (Google already verified the
-    // email); false until the verify-email link is clicked for a local
-    // signup. Mirrored into the JWT as a claim by JwtService so downstream
-    // services don't need a DB round trip to gate on it.
+    // False until the verify-email link is clicked. Mirrored into the JWT
+    // as a claim by JwtService so downstream services don't need a DB
+    // round trip to gate on it.
     @Column(name = "email_verified", nullable = false)
     private boolean emailVerified = false;
 

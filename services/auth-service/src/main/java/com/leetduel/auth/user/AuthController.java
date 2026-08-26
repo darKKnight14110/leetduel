@@ -2,7 +2,6 @@ package com.leetduel.auth.user;
 
 import com.leetduel.auth.dto.AuthResponse;
 import com.leetduel.auth.dto.ForgotPasswordRequest;
-import com.leetduel.auth.dto.GoogleLoginRequest;
 import com.leetduel.auth.dto.LoginRequest;
 import com.leetduel.auth.dto.LogoutRequest;
 import com.leetduel.auth.dto.MessageResponse;
@@ -83,12 +82,6 @@ public class AuthController {
     public ResponseEntity<MessageResponse> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
         authService.resetPassword(request.token(), request.newPassword());
         return ResponseEntity.ok(new MessageResponse("Password reset"));
-    }
-
-    @PostMapping("/google")
-    public ResponseEntity<AuthResponse> googleLogin(@Valid @RequestBody GoogleLoginRequest request) {
-        AuthService.AuthResult result = authService.googleLogin(request.idToken());
-        return ResponseEntity.ok(toResponse(result));
     }
 
     private AuthResponse toResponse(AuthService.AuthResult result) {

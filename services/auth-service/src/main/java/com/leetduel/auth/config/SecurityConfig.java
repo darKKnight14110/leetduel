@@ -62,16 +62,16 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // All of auth-service's own endpoints are public by
                         // design - they're how a caller BECOMES
-                        // authenticated (signup/login/refresh/google) or
-                        // recovers access (verify/resend/forgot/reset). None
-                        // of them need to trust an already-issued token; the
-                        // JWT they hand back is what other services then
+                        // authenticated (signup/login/refresh) or recovers
+                        // access (verify/resend/forgot/reset). None of them
+                        // need to trust an already-issued token; the JWT
+                        // they hand back is what other services then
                         // require.
                         .requestMatchers(
                                 "/auth/signup", "/auth/login", "/auth/refresh", "/auth/logout",
                                 "/auth/verify-email", "/auth/resend-verification",
                                 "/auth/forgot-password", "/auth/reset-password",
-                                "/auth/google", "/actuator/health"
+                                "/actuator/health"
                         ).permitAll()
                         .anyRequest().authenticated())
                 .build();
