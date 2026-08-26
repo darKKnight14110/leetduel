@@ -1,0 +1,14 @@
+package com.leetduel.submission.dto;
+
+import com.leetduel.submission.submission.Language;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+
+import java.util.UUID;
+
+public record CreateSubmissionRequest(
+        @NotNull UUID problemId,
+        @NotNull Language language,
+        @NotBlank String sourceCode
+) {
+}

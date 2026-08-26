@@ -1,6 +1,10 @@
-// Talks directly to auth-service (localhost:8082 in dev) - there's no API
-// Gateway yet (see docs/goals.md, still a later phase), so this is the one
-// place that base URL is allowed to be hardcoded as a default. Every other
+import { getAccessToken, clearAccessToken } from "./auth";
+
+// Auth calls go straight to auth-service, not through the Gateway - the
+// Gateway now exists (see GATEWAY_URL below) but its allowlist only
+// exempts specific /auth/** paths from JWT verification; nothing here has
+// a token yet to be verified in the first place, so there is no benefit to
+// routing signup/login through it, and it would just add a hop. Every
 // component goes through this module rather than calling fetch directly.
 const API_URL = process.env.NEXT_PUBLIC_AUTH_API_URL ?? "http://localhost:8082";
 
@@ -58,4 +62,153 @@ export function decodeJwtPayload(token: string): Record<string, unknown> | null 
   } catch {
     return null;
   }
+}
+
+// Everything below talks to the Gateway (localhost:8084 in dev), not
+// directly to problem-service/submission-service. This isn't a style
+// choice - it's required: Problem Service's public endpoints and every
+// Submission Service endpoint trust an X-User-Id header that only
+// JwtAuthWebFilter (inside the Gateway) ever sets, after verifying the
+// JWT itself. Calling either service's port directly would arrive with no
+// X-User-Id at all and 401/produce nonsensical requests. Auth calls above
+// stay pointed at auth-service directly per that block's own comment;
+// this is a second, separate base URL on purpose.
+const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_API_URL ?? "http://localhost:8084";
+
+export type Difficulty = "EASY" | "MEDIUM" | "HARD";
+export type Language = "PYTHON" | "JAVA";
+
+export type ProblemSummary = {
+  id: string;
+  slug: string;
+  title: string;
+  difficulty: Difficulty;
+};
+
+export type ProblemParameter = {
+  name: string;
+  type: string;
+};
+
+export type SampleTestCase = {
+  ordinal: number;
+  input: string;
+  expectedOutput: string;
+};
+
+export type ProblemDetail = {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  difficulty: Difficulty;
+  functionName: string;
+  returnType: string;
+  parameters: ProblemParameter[];
+  languageStubs: Partial<Record<Language, string>>;
+  sampleTestCases: SampleTestCase[];
+};
+
+export type PagedResponse<T> = {
+  content: T[];
+  totalPages: number;
+  number: number;
+};
+
+export type SubmissionStatus = "PENDING" | "JUDGED";
+export type Verdict =
+  | "ACCEPTED"
+  | "WRONG_ANSWER"
+  | "TIME_LIMIT_EXCEEDED"
+  | "RUNTIME_ERROR"
+  | "COMPILE_ERROR"
+  | "INTERNAL_ERROR";
+
+export type TestCaseResult = {
+  ordinal: number;
+  status: string;
+  runtimeMs: number;
+  // Only populated on a failing case - see JudgeJobListener.toPayload on
+  // the backend. All hidden test cases (not just samples) come back
+  // through this same field once judged; the frontend doesn't currently
+  // distinguish hidden-vs-sample here, matching what submission-service's
+  // own read endpoint returns as-is.
+  expectedOutput: string | null;
+  actualOutput: string | null;
+};
+
+export type SubmissionResponse = {
+  id: string;
+  problemId: string;
+  language: Language;
+  sourceCode: string;
+  status: SubmissionStatus;
+  verdict: Verdict | null;
+  testCasesPassed: number | null;
+  testCasesTotal: number | null;
+  // Raw JSON string on the wire, not a nested array - it is a JSONB
+  // column (submissions.test_results) round-tripped through the entity
+  // as a plain String (see Submission.java), not deserialized into a
+  // typed object server-side. parseTestResults() below does the parsing
+  // the backend deliberately does not do.
+  testResults: string | null;
+  createdAt: string;
+  judgedAt: string | null;
+};
+
+export function parseTestResults(submission: SubmissionResponse): TestCaseResult[] {
+  if (!submission.testResults) return [];
+  try {
+    return JSON.parse(submission.testResults) as TestCaseResult[];
+  } catch {
+    return [];
+  }
+}
+
+// Thrown specifically for a missing/rejected token so callers can
+// distinguish "not logged in" from a generic ApiError and redirect to
+// /login, rather than just showing a raw error message on a protected page.
+export class UnauthorizedError extends ApiError {}
+
+async function authorizedFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = getAccessToken();
+  if (!token) throw new UnauthorizedError("Not logged in");
+
+  const res = await fetch(`${GATEWAY_URL}${path}`, {
+    ...options,
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      Authorization: `Bearer ${token}`,
+      ...options.headers,
+    },
+  });
+
+  if (res.status === 401) {
+    clearAccessToken();
+    throw new UnauthorizedError("Session expired, please log in again");
+  }
+  if (!res.ok) {
+    const data: unknown = await res.json().catch(() => null);
+    throw new ApiError(extractMessage(data) ?? `Request failed (${res.status})`);
+  }
+  return res.json() as Promise<T>;
+}
+
+export function listProblems(page = 0): Promise<PagedResponse<ProblemSummary>> {
+  return authorizedFetch(`/problems?page=${page}`);
+}
+
+export function getProblem(id: string): Promise<ProblemDetail> {
+  return authorizedFetch(`/problems/${id}`);
+}
+
+export function createSubmission(problemId: string, language: Language, sourceCode: string): Promise<SubmissionResponse> {
+  return authorizedFetch("/submissions", {
+    method: "POST",
+    body: JSON.stringify({ problemId, language, sourceCode }),
+  });
+}
+
+export function getSubmission(id: string): Promise<SubmissionResponse> {
+  return authorizedFetch(`/submissions/${id}`);
 }

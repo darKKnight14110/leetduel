@@ -5,6 +5,7 @@ import { motion } from "motion/react";
 import { CheckCircle, ArrowClockwise } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/Button";
 import { signup, login, decodeJwtPayload, ApiError, type AuthResult } from "@/lib/api";
+import { setAccessToken, clearAccessToken } from "@/lib/auth";
 
 type Mode = "login" | "signup";
 
@@ -29,6 +30,10 @@ export function AuthCard() {
     setError(null);
     try {
       const auth = mode === "signup" ? await signup(username, email, password) : await login(identifier, password);
+      // Persisted so /problems and /problems/[id] (separate page loads) can
+      // still find it - see lib/auth.ts for why localStorage, not just
+      // this component's own state.
+      setAccessToken(auth.accessToken);
       setResult(auth);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Is auth-service running?");
@@ -38,7 +43,7 @@ export function AuthCard() {
   }
 
   if (result) {
-    return <LoggedInPanel result={result} onLogout={() => setResult(null)} />;
+    return <LoggedInPanel result={result} onLogout={() => { clearAccessToken(); setResult(null); }} />;
   }
 
   return (
@@ -181,10 +186,14 @@ function LoggedInPanel({ result, onLogout }: { result: AuthResult; onLogout: () 
       </div>
 
       <p className="mt-6 text-sm text-fg-muted">
-        Access and refresh tokens were issued by auth-service and are held in memory for this demo.
+        Access and refresh tokens were issued by auth-service. The access token is kept in
+        localStorage so it survives navigating to the problem set below.
       </p>
 
-      <Button variant="ghost" onClick={onLogout} className="mt-6 w-full">
+      <Button href="/problems" variant="primary" className="mt-6 w-full">
+        Browse problems
+      </Button>
+      <Button variant="ghost" onClick={onLogout} className="mt-3 w-full">
         Log out
       </Button>
     </motion.div>

@@ -68,6 +68,30 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
 
+
+  # First app service that runs containerized rather than as a plain local
+  # JVM process (see the Phase 1 plan's explicit call to containerize Judge
+  # Worker ahead of the rest of the stack). SPRING_RABBITMQ_HOST overrides
+  # the localhost default in application.properties, which stays there so
+  # `./gradlew bootRun` still works for fast local iteration outside
+  # compose. The docker.sock bind mount is what makes every sandbox
+  # container Judge Worker creates a SIBLING, not a child - see
+  # DockerSandboxService's use of copyArchiveToContainerCmd instead of
+  # host-path bind mounts, which is the direct consequence of that. Named
+  # security trade-off (root-equivalent host Docker control from inside
+  # this one container) lives in the Dockerfile and the Phase 1 plan -
+  # accepted for a dev-only deployment, not production-multi-tenant-safe.
+  judge-worker:
+    build: ./services/judge-worker
+    environment:
+      SPRING_RABBITMQ_HOST: rabbitmq
+    ports:
+      - "8087:8087"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - rabbitmq
+
 volumes:
   postgres_data:
   mongo_data:
