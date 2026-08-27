@@ -2,7 +2,7 @@
 
 Target: backend-heavy systems project demonstrating full system-design-primer coverage for top systems/backend engineering roles.
 
-Status: Phase 0 (foundations) and Phase 1 (core judge loop) are implemented and demoed end-to-end. Phase 2 (ELO + matchmaking) is next. See "Implementation phases" below for the full breakdown.
+Status: Phase 0 (foundations), Phase 1 (core judge loop), and Phase 2 (ELO + matchmaking) are implemented. Phase 3 (real-time duel) is next. See "Implementation phases" below for the full breakdown.
 
 ## Pitch
 
@@ -27,7 +27,7 @@ Full platform, built in phases. Each phase independently demoable and resume-wor
 | WS Gateway Service | holds client WebSocket connections, fanout via Redis pub/sub, routes opponent progress via Redis `matchId -> connectionIds` | Redis (pub/sub, session map) |
 | Leaderboard Service | consumes match-completed events off RabbitMQ, maintains ranked leaderboard | Redis (sorted set) |
 
-Gateway, Auth, User/Profile, Problem, Submission, and Judge Worker are implemented (Phases 0-1). Matchmaking, Duel/Match, WS Gateway, and Leaderboard are designed but not yet built (Phase 2+).
+Gateway, Auth, User/Profile, Problem, Submission, Judge Worker, and Matchmaking are implemented (Phases 0-2). Duel/Match, WS Gateway, and Leaderboard are designed but not yet built (Phase 3+).
 
 ## Async backbone (Kafka dropped as overkill for this project's actual scale)
 
@@ -51,13 +51,14 @@ Docker sandbox workers: isolated containers per submission, resource-limited (CP
 
 WebSocket via a dedicated WS Gateway service. Connections registered in Redis so gateway can run multi-instance (critical: without the Redis `matchId -> connectionIds` lookup, horizontal scaling breaks opponent-push routing — this is the actual reason Redis pub/sub is used instead of plain in-memory WS state).
 
-## Matchmaking algorithm (planned, Phase 2)
+## Matchmaking algorithm (implemented)
 
 Expanding-window ELO matching (like chess.com/League):
-1. Client joins queue → publishes `join_request{userId, elo}` to RabbitMQ `matchmaking.join` queue (durable, at-least-once, survives matchmaker restarts).
-2. Matchmaker Service consumes, inserts into Redis sorted set keyed by ELO.
-3. On each insert, scans sorted set for a pair within current acceptable rating gap; gap widens the longer either user has waited (bounds wait time while preserving fairness early on).
-4. Match found → both removed from Redis set, Match record created, `match.created` published to RabbitMQ topic exchange (fans out to Duel Service + WS Gateway).
+1. Client joins queue (`POST /matchmaking/queue/join`) → Matchmaking Service resolves the caller's current ELO from User/Profile Service (never trusts a client-supplied value), then publishes `JoinRequestedEvent{userId, elo, requestedAt}` to RabbitMQ's durable `matchmaking.join` queue (survives matchmaker restarts).
+2. A `@RabbitListener` consumer inserts the user into a Redis sorted set keyed by ELO, plus a wait-start timestamp Hash - the only writer of that pool state, idempotent against RabbitMQ's at-least-once redelivery.
+3. A periodic sweep (`@Scheduled`, ~1s) processes waiting users oldest-first; each user's acceptable ELO window widens with wait time (`base + growth × secondsWaited`, capped). A single atomic Redis Lua script (`pair_match.lua`) checks the candidate is still valid, scans for the nearest in-window opponent, and removes both in one step - the same atomicity technique the API Gateway's token-bucket rate limiter uses, applied to prevent two horizontally-scaled instances from double-booking the same opponent.
+4. Match found → a random problem is assigned (Problem Service), a `Match` row is persisted in Matchmaking Service's own schema via the transactional-outbox pattern, and `match.created` is published to the `match.events` topic exchange for Duel Service/WS Gateway/Leaderboard Service (Phase 3+) to consume independently.
+5. A user waiting past a configured max (120s) is swept out and marked `EXPIRED`; `GET /matchmaking/queue/status` is polled by the client to learn `WAITING`/`MATCHED`/`EXPIRED` (no WebSocket push yet - that's Phase 3). `DELETE /matchmaking/queue/leave` cancels, with a race check against a concurrent match.
 
 ## Live duel flow (planned, Phase 3)
 
@@ -89,21 +90,19 @@ Full React + TypeScript SPA: Monaco code editor, problem browser, matchmaking/qu
 
 ## Open questions / deferred decisions
 
-- Exact data model / schema for the not-yet-built services (Matchmaking, Duel/Match, Leaderboard)
+- Exact data model / schema for the not-yet-built services (Duel/Match, Leaderboard)
 - Judge sandbox anti-cheat considerations (plagiarism detection is explicitly out of v1 scope unless revisited)
 - Testing strategy per service (unit/integration/e2e, contract tests between services)
 - CI/CD pipeline
 - Exact k8s manifest/Helm chart layout
-- Stale/expired matchmaking join request handling (max-wait/expiry) — raised, not yet resolved
-
-These get resolved incrementally as each phase is implemented, not up front.
+These get resolved incrementally as each phase is implemented, not up front. (Matchmaking join-request expiry is resolved as of Phase 2 - see "Matchmaking algorithm" above.)
 
 ## Implementation phases
 
 0. **Foundations — done.** Repo structure, `docker-compose.infra.yml` (Postgres, Mongo, Redis, RabbitMQ), Auth Service, API Gateway, User Service — login working end-to-end.
 1. **Core judge loop — done.** Problem Service, Submission Service, Judge Worker (Docker sandbox), RabbitMQ job queue — single-player practice mode fully working.
-2. **ELO + Matchmaking — next.** Rating model, Matchmaking Service, Redis expanding-window pairing.
-3. Real-time duel: WS Gateway, Redis pub/sub fanout, live duel state, ELO update on completion.
+2. **ELO + Matchmaking — done.** Matchmaking Service, Redis expanding-window pairing via an atomic Lua script, transactional-outbox `match.created` publish.
+3. **Real-time duel — next.** WS Gateway, Redis pub/sub fanout, live duel state, ELO update on completion.
 4. Leaderboard + profile/stats.
 5. Frontend React SPA (built incrementally alongside each phase's API surface rather than as one final phase).
 6. Kubernetes deployment: Helm charts, HPA, migrate from docker-compose to k8s.

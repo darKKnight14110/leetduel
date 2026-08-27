@@ -2,6 +2,7 @@ package com.leetduel.problem.problem;
 
 import com.leetduel.problem.dto.CreateProblemRequest;
 import com.leetduel.problem.dto.InternalProblemDetailDto;
+import com.leetduel.problem.dto.InternalRandomProblemDto;
 import com.leetduel.problem.dto.ParameterDto;
 import com.leetduel.problem.dto.ProblemDetailDto;
 import com.leetduel.problem.dto.ProblemSummaryDto;
@@ -145,6 +146,14 @@ public class ProblemService {
         }
 
         return problem.getId();
+    }
+
+    // Backs matchmaking-service's per-match problem selection - see
+    // ProblemRepository.findRandom() for the scale caveat on this query.
+    public InternalRandomProblemDto getRandomProblem() {
+        Problem problem = problemRepository.findRandom()
+                .orElseThrow(() -> new ProblemNotFoundException("No problems exist to select from"));
+        return new InternalRandomProblemDto(problem.getId());
     }
 
     public void deleteProblem(UUID problemId) {

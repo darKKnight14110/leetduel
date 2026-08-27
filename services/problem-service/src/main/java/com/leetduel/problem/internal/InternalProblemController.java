@@ -1,6 +1,7 @@
 package com.leetduel.problem.internal;
 
 import com.leetduel.problem.dto.InternalProblemDetailDto;
+import com.leetduel.problem.dto.InternalRandomProblemDto;
 import com.leetduel.problem.problem.ProblemService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -26,5 +27,12 @@ public class InternalProblemController {
     @GetMapping("/{id}/test-cases")
     public ResponseEntity<InternalProblemDetailDto> getTestCases(@PathVariable UUID id) {
         return ResponseEntity.ok(problemService.getInternalDetail(id));
+    }
+
+    // Called by matchmaking-service at match-creation time to assign a
+    // problem to a newly formed pair.
+    @GetMapping("/random")
+    public ResponseEntity<InternalRandomProblemDto> getRandom() {
+        return ResponseEntity.ok(problemService.getRandomProblem());
     }
 }

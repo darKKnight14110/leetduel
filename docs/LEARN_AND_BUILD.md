@@ -103,14 +103,16 @@ Delivered:
 4. Submission Service exposes verdict to the client.
 5. **Demo checkpoint (met):** submit a real solution to a real problem through the API, get back pass/fail per test case, end to end — no matchmaking or duel yet.
 
-### Phase 2 — ELO + Matchmaking (next)
+### Phase 2 — ELO + Matchmaking (done)
 Prerequisite reading: §5 (Redis), §12 (ELO)
 
-Plan:
-1. Matchmaking Service: `/queue/join` publishes `join_request` to RabbitMQ `matchmaking.join` queue.
-2. Matchmaker consumer: inserts into Redis sorted set keyed by ELO, scans for a pair within the current (expanding) rating window on each insert.
-3. On match found: remove both from Redis set, create Match record (Postgres), publish `match.created` to a RabbitMQ topic exchange.
-4. **Demo checkpoint:** two test clients join the queue, get paired within the expected window, Match record exists in Postgres — verified via API/logs, no live duel UI yet.
+Delivered:
+1. Matchmaking Service: `POST /matchmaking/queue/join` resolves the caller's ELO from User/Profile Service (never trusts a client-supplied value), publishes a join request to RabbitMQ's durable `matchmaking.join` queue.
+2. A `@RabbitListener` consumer inserts the user into a Redis sorted set keyed by ELO plus a wait-start Hash - idempotent against redelivery.
+3. A `@Scheduled` sweep (~1s) pairs waiting users oldest-first via an atomic Redis Lua script (`pair_match.lua`) that checks candidate freshness, scans for the nearest in-window opponent, and removes both in one step - safe under multiple horizontally-scaled instances without a distributed lock, verified by a Testcontainers-backed concurrency test (`PairingLuaScriptIT`).
+4. On match: a random problem is assigned (new `GET /internal/problems/random` on Problem Service), a `Match` row is persisted via the transactional-outbox pattern, `match.created` published to the `match.events` topic exchange.
+5. Max-wait expiry (120s) resolves the previously-open stale-join-request question; `GET /matchmaking/queue/status` and `DELETE /matchmaking/queue/leave` round out the API.
+6. **Demo checkpoint (met):** two test clients join the queue, get paired within the expected window, Match record exists in Postgres — verified via API/logs, no live duel UI yet.
 
 ### Phase 3 — Real-time duel
 Prerequisite reading: §6 (WebSocket/STOMP)
@@ -163,4 +165,4 @@ Plan:
 
 ## Remaining open design questions
 
-Tracked in full in `goals.md`'s "Open questions / deferred decisions": exact data model for the Phase 2+ services, judge anti-cheat scope, testing strategy, CI/CD pipeline, k8s manifest layout, and matchmaking join-request expiry handling. Resolved incrementally as each phase lands, not as a blocking upfront pass.
+Tracked in full in `goals.md`'s "Open questions / deferred decisions": exact data model for the Phase 3+ services (Duel/Match, Leaderboard), judge anti-cheat scope, testing strategy, CI/CD pipeline, and k8s manifest layout. Resolved incrementally as each phase lands, not as a blocking upfront pass. (Matchmaking join-request expiry was resolved in Phase 2.)
