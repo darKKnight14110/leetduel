@@ -13,6 +13,7 @@ import java.util.UUID;
 public record SubmissionResponse(
         UUID id,
         UUID problemId,
+        UUID matchId,
         Language language,
         String sourceCode,
         SubmissionStatus status,
@@ -25,7 +26,7 @@ public record SubmissionResponse(
 ) {
 
     public static SubmissionResponse from(Submission s) {
-        return new SubmissionResponse(s.getId(), s.getProblemId(), s.getLanguage(), s.getSourceCode(),
+        return new SubmissionResponse(s.getId(), s.getProblemId(), s.getMatchId(), s.getLanguage(), s.getSourceCode(),
                 s.getStatus(), s.getVerdict(), s.getTestCasesPassed(), s.getTestCasesTotal(),
                 s.getTestResults(), s.getCreatedAt(), s.getJudgedAt());
     }

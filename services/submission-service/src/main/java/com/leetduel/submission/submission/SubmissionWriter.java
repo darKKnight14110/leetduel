@@ -33,6 +33,7 @@ class SubmissionWriter {
         Submission submission = new Submission();
         submission.setUserId(userId);
         submission.setProblemId(request.problemId());
+        submission.setMatchId(request.matchId());
         submission.setLanguage(request.language());
         submission.setSourceCode(request.sourceCode());
         submission = submissionRepository.save(submission);
@@ -55,7 +56,7 @@ class SubmissionWriter {
                 .toList();
 
         return new JudgeJobCreatedEvent(
-                submission.getId(), submission.getProblemId(), submission.getUserId(),
+                submission.getId(), submission.getProblemId(), submission.getUserId(), submission.getMatchId(),
                 submission.getLanguage().name(), submission.getSourceCode(),
                 problemDetail.functionName(), problemDetail.returnType(), parameters,
                 problemDetail.timeLimitMs(), problemDetail.memoryLimitMb(), testCases);

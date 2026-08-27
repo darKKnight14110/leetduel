@@ -11,6 +11,10 @@ public record JudgeJobCreatedEvent(
         UUID submissionId,
         UUID problemId,
         UUID userId,
+        // Null for practice-mode submissions. Pass-through only - never
+        // read here, just carried into SubmissionJudgedEvent for Duel
+        // Service (Phase 3+) to consume.
+        UUID matchId,
         String language,
         String sourceCode,
         String functionName,

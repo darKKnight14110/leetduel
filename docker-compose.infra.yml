@@ -92,6 +92,36 @@ services:
     depends_on:
       - rabbitmq
 
+  # Phase 3: owns match lifecycle after match.created. Needs Postgres (its
+  # own duel schema) and RabbitMQ - no Redis, unlike matchmaking-service,
+  # since there's no shared-mutable-index problem here (one row per match,
+  # one writer, guarded by JPA optimistic locking - see Match.java).
+  duel-service:
+    build: ./services/duel-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/leetduel
+      SPRING_RABBITMQ_HOST: rabbitmq
+    ports:
+      - "8089:8089"
+    depends_on:
+      - postgres
+      - rabbitmq
+
+  # Phase 3: standalone, direct-connect from the frontend (NOT proxied
+  # through the reactive Gateway - see docs/goals.md's Phase 3 plan for
+  # why). Stateless by design; Redis here is Pub/Sub only (cross-instance
+  # STOMP fanout), not shared mutable state.
+  ws-gateway:
+    build: ./services/ws-gateway
+    environment:
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_DATA_REDIS_HOST: redis
+    ports:
+      - "8090:8090"
+    depends_on:
+      - rabbitmq
+      - redis
+
 volumes:
   postgres_data:
   mongo_data:

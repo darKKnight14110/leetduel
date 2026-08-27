@@ -120,12 +120,6 @@ export default function MatchmakingPage() {
     }
   }
 
-  function handleReset() {
-    setState("NEVER_JOINED");
-    setMatchId(null);
-    setError(null);
-  }
-
   return (
     <main className="flex flex-1 flex-col">
       <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-6 pt-8">
@@ -168,22 +162,11 @@ export default function MatchmakingPage() {
             </>
           )}
 
-          {state === "MATCHED" && (
+          {state === "MATCHED" && matchId && (
             <>
               <p className="text-sm font-medium text-success">Match found.</p>
-              {/* No live duel view yet (Phase 3 / WS Gateway) - this is
-                  the honest current stopping point of the backend this
-                  connects to, not a placeholder being hidden. matchId is
-                  shown so the pairing can be verified against
-                  matchmaking.matches / the match.created event during a
-                  demo, rather than the UI silently pretending the duel
-                  screen exists. */}
-              <p className="break-all font-mono text-xs text-fg-muted">Match ID: {matchId}</p>
-              <p className="text-xs text-fg-muted">
-                The live duel screen isn&apos;t built yet - this match is recorded and waiting for Phase 3.
-              </p>
-              <Button variant="ghost" onClick={handleReset} className="w-full">
-                Back to queue
+              <Button variant="primary" href={`/duel/${matchId}`} className="w-full">
+                Enter duel
               </Button>
             </>
           )}

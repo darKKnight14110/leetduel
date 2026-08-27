@@ -35,6 +35,11 @@ public class Submission {
     @Column(name = "problem_id", nullable = false)
     private UUID problemId;
 
+    // Null for practice-mode submissions; set for submissions made from a
+    // live duel. See V3 migration.
+    @Column(name = "match_id")
+    private UUID matchId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private Language language;

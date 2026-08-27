@@ -129,7 +129,8 @@ public class JudgeJobListener {
 
     private void publishResult(JudgeJobCreatedEvent job, Verdict verdict, int passed, int total,
             List<SubmissionJudgedEvent.TestCaseResultPayload> results) {
-        SubmissionJudgedEvent event = new SubmissionJudgedEvent(job.submissionId(), verdict.name(), passed, total, results);
+        SubmissionJudgedEvent event = new SubmissionJudgedEvent(
+                job.submissionId(), job.matchId(), job.userId(), verdict.name(), passed, total, results);
         rabbitTemplate.convertAndSend(judgeEventsExchange, submissionJudgedRoutingKey, event);
     }
 }

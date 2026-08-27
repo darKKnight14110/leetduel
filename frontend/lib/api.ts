@@ -202,10 +202,19 @@ export function getProblem(id: string): Promise<ProblemDetail> {
   return authorizedFetch(`/problems/${id}`);
 }
 
-export function createSubmission(problemId: string, language: Language, sourceCode: string): Promise<SubmissionResponse> {
+// matchId is undefined for practice-mode submissions (the existing
+// /problems/[id] flow) and set when submitting from a live duel - mirrors
+// CreateSubmissionRequest.matchId on the backend, null/absent either way
+// funnels into the same optional field.
+export function createSubmission(
+  problemId: string,
+  language: Language,
+  sourceCode: string,
+  matchId?: string,
+): Promise<SubmissionResponse> {
   return authorizedFetch("/submissions", {
     method: "POST",
-    body: JSON.stringify({ problemId, language, sourceCode }),
+    body: JSON.stringify({ problemId, language, sourceCode, matchId: matchId ?? null }),
   });
 }
 
@@ -259,4 +268,27 @@ export function getQueueStatus(): Promise<QueueStatusResponse> {
 // cancelled, which the caller needs to be able to see.
 export function leaveQueue(): Promise<QueueStatusResponse> {
   return authorizedFetch("/matchmaking/queue/leave", { method: "DELETE" });
+}
+
+export type MatchStatus = "IN_PROGRESS" | "COMPLETED";
+
+export type MatchResponse = {
+  matchId: string;
+  player1Id: string;
+  player2Id: string;
+  problemId: string;
+  timeLimitMs: number;
+  player1ProgressPct: number;
+  player2ProgressPct: number;
+  status: MatchStatus;
+  winnerId: string | null;
+  isDraw: boolean;
+  startedAt: string;
+};
+
+// Routed through the Gateway (Duel Service's /duels/{matchId}) - the
+// duel page's initial-load / reconnect-recovery read. WS carries only
+// live deltas after this first fetch.
+export function getDuelMatch(matchId: string): Promise<MatchResponse> {
+  return authorizedFetch(`/duels/${matchId}`);
 }

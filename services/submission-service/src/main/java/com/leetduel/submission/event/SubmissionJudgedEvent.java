@@ -9,6 +9,11 @@ import java.util.UUID;
 // of a judged run until this listener writes it into submissions.test_results.
 public record SubmissionJudgedEvent(
         UUID submissionId,
+        // Mirrors JudgeJobCreatedEvent.matchId - not used by this listener
+        // (submission-service updates by submissionId, not matchId), kept
+        // only so this DTO deserializes the full payload Judge Worker sends.
+        UUID matchId,
+        UUID userId,
         String verdict,
         int testCasesPassed,
         int testCasesTotal,

@@ -1,0 +1,44 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.1.1'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.leetduel'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// STOMP-over-WebSocket needs a Servlet container (Tomcat, via
+	// starter-webmvc) - this is NOT the reactive gateway's WebFlux stack.
+	// Spring's STOMP broker relay (SimpleBroker) is servlet/spring-messaging
+	// based, not WebFlux.
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	implementation 'org.springframework.boot:spring-boot-starter-websocket'
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+	implementation 'org.springframework.boot:spring-boot-starter-amqp'
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	// Same jjwt version as gateway/auth-service - verify only, never issue.
+	implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testCompileOnly 'org.projectlombok:lombok'
+	testAnnotationProcessor 'org.projectlombok:lombok'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
