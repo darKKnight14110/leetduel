@@ -202,6 +202,10 @@ export function getProblem(id: string): Promise<ProblemDetail> {
   return authorizedFetch(`/problems/${id}`);
 }
 
+export function getProblemSummaries(ids: string[]): Promise<ProblemSummary[]> {
+  return authorizedFetch(`/problems/summaries?ids=${ids.join(",")}`);
+}
+
 // matchId is undefined for practice-mode submissions (the existing
 // /problems/[id] flow) and set when submitting from a live duel - mirrors
 // CreateSubmissionRequest.matchId on the backend, null/absent either way
@@ -310,6 +314,11 @@ export type LeaderboardEntry = {
   rank: number;
 };
 
+export type PublicIdentity = {
+  userId: string;
+  username: string;
+};
+
 export type LeaderboardTopResponse = {
   board: Board;
   entries: LeaderboardEntry[];
@@ -326,6 +335,19 @@ const LEADERBOARD_API_URL = process.env.NEXT_PUBLIC_LEADERBOARD_API_URL ?? GATEW
 
 async function publicFetch<T>(path: string): Promise<T> {
   const res = await fetch(`${LEADERBOARD_API_URL}${path}`);
+  if (!res.ok) {
+    const data: unknown = await res.json().catch(() => null);
+    throw new ApiError(extractMessage(data) ?? `Request failed (${res.status})`);
+  }
+  return res.json() as Promise<T>;
+}
+
+export function getPublicIdentities(ids: string[]): Promise<PublicIdentity[]> {
+  return publicFetchFromGateway(`/users/public-identities?ids=${ids.join(",")}`);
+}
+
+async function publicFetchFromGateway<T>(path: string): Promise<T> {
+  const res = await fetch(`${GATEWAY_URL}${path}`);
   if (!res.ok) {
     const data: unknown = await res.json().catch(() => null);
     throw new ApiError(extractMessage(data) ?? `Request failed (${res.status})`);

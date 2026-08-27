@@ -20,6 +20,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
+import java.util.LinkedHashSet;
+import java.util.List;
 
 // Every route here requires a JWT at the Gateway (no public-paths entry for
 // /problems) - see the Gateway's application.properties for that decision.
@@ -29,6 +31,7 @@ import java.util.UUID;
 public class ProblemController {
 
     private static final int MAX_PAGE_SIZE = 50;
+    private static final int MAX_SUMMARY_IDS = 50;
 
     private final ProblemService problemService;
 
@@ -40,6 +43,15 @@ public class ProblemController {
             @RequestParam(defaultValue = "20") int size) {
         Pageable pageable = PageRequest.of(page, Math.min(size, MAX_PAGE_SIZE));
         return ResponseEntity.ok(problemService.listProblems(difficulty, tag, pageable));
+    }
+
+    @GetMapping("/summaries")
+    public ResponseEntity<List<ProblemSummaryDto>> summaries(@RequestParam List<UUID> ids) {
+        List<UUID> requestedIds = new LinkedHashSet<>(ids).stream().toList();
+        if (requestedIds.isEmpty() || requestedIds.size() > MAX_SUMMARY_IDS) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(problemService.getSummaries(requestedIds));
     }
 
     @GetMapping("/{id}")

@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Collection;
 import java.util.UUID;
 
 // First service layer in user-service - added ahead of need at Phase 0/1
@@ -36,6 +37,10 @@ public class UserProfileService {
 
     public List<EloHistoryEntry> getEloHistory(UUID userId) {
         return eloHistoryRepository.findTop200ByUserIdOrderByRecordedAtAsc(userId);
+    }
+
+    public List<UserProfile> getProfiles(Collection<UUID> userIds) {
+        return userProfileRepository.findAllById(userIds);
     }
 
     // Sole writer of ELO (per docs/goals.md) - Duel Service computes the

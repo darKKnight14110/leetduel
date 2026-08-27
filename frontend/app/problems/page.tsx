@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Logo } from "@/components/Logo";
+import { AppShell } from "@/components/layout/AppShell";
+import { ErrorState, LoadingState } from "@/components/ui/PageState";
 import { DifficultyBadge } from "@/components/problems/DifficultyBadge";
 import { listProblems, UnauthorizedError, ApiError, type ProblemSummary } from "@/lib/api";
 import { getAccessToken } from "@/lib/auth";
@@ -17,6 +18,7 @@ export default function ProblemsPage() {
   const router = useRouter();
   const [problems, setProblems] = useState<ProblemSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
     if (!getAccessToken()) {
@@ -32,25 +34,17 @@ export default function ProblemsPage() {
         }
         setError(err instanceof ApiError ? err.message : "Could not load problems. Is the Gateway running?");
       });
-  }, [router]);
+  }, [router, retryToken]);
 
   return (
-    <main className="flex flex-1 flex-col">
-      <div className="mx-auto w-full max-w-3xl px-6 pt-8">
-        <Link href="/" aria-label="LeetDuel home">
-          <Logo />
-        </Link>
-        <Link href="/matchmaking" className="text-sm text-fg-muted hover:text-fg">
-          Ranked duel
-        </Link>
-      </div>
-
-      <div className="mx-auto w-full max-w-3xl flex-1 px-6 py-10">
+    <AppShell>
+      <main className="flex flex-1 flex-col">
+        <div className="mx-auto w-full max-w-3xl flex-1 px-6 py-10">
         <h1 className="text-2xl font-semibold text-fg">Problems</h1>
 
-        {error && <p className="mt-6 text-sm text-danger">{error}</p>}
+        {error && <ErrorState message={error} onRetry={() => { setError(null); setProblems(null); setRetryToken((value) => value + 1); }} />}
 
-        {!error && !problems && <p className="mt-6 text-sm text-fg-muted">Loading...</p>}
+        {!error && !problems && <LoadingState label="Loading problems..." />}
 
         {problems && problems.length === 0 && (
           <p className="mt-6 text-sm text-fg-muted">No problems yet.</p>
@@ -72,6 +66,7 @@ export default function ProblemsPage() {
           </ul>
         )}
       </div>
-    </main>
+      </main>
+    </AppShell>
   );
 }

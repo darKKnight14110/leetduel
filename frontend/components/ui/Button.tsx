@@ -17,7 +17,7 @@ type ButtonProps = {
 // Intent rules. Full-pill radius for every interactive control, per the
 // corner-radius scale locked in globals.css.
 const base =
-  "inline-flex items-center justify-center whitespace-nowrap rounded-full px-6 py-3 text-sm font-medium transition-transform active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none";
+  "inline-flex items-center justify-center whitespace-nowrap rounded-full px-6 py-3 text-sm font-medium transition-transform hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none";
 
 const variants = {
   primary: "bg-accent text-accent-ink hover:bg-accent-strong",

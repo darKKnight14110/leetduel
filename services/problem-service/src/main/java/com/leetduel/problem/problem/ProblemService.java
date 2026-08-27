@@ -49,6 +49,12 @@ public class ProblemService {
                 .map(p -> new ProblemSummaryDto(p.getId(), p.getSlug(), p.getTitle(), p.getDifficulty()));
     }
 
+    public List<ProblemSummaryDto> getSummaries(List<UUID> problemIds) {
+        return problemRepository.findAllById(problemIds).stream()
+                .map(p -> new ProblemSummaryDto(p.getId(), p.getSlug(), p.getTitle(), p.getDifficulty()))
+                .toList();
+    }
+
     public ProblemDetailDto getPublicDetail(UUID problemId) {
         Problem problem = requireProblem(problemId);
         FunctionSignature signature = functionSignatureRepository.findByProblemId(problemId)

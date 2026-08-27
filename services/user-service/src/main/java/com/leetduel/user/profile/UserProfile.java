@@ -25,6 +25,9 @@ public class UserProfile {
     @Column(name = "user_id")
     private UUID userId;
 
+    @Column(length = 30)
+    private String username;
+
     @Column(nullable = false)
     private Integer elo = 1200;
 

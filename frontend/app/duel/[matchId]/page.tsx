@@ -5,7 +5,9 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Client, type IMessage } from "@stomp/stompjs";
 import { ArrowClockwise } from "@phosphor-icons/react";
-import { Logo } from "@/components/Logo";
+import { AppShell } from "@/components/layout/AppShell";
+import { CodeEditor } from "@/components/editor/CodeEditor";
+import { ErrorState, LoadingState } from "@/components/ui/PageState";
 import { Button } from "@/components/ui/Button";
 import {
   getDuelMatch,
@@ -73,10 +75,11 @@ export default function DuelPage() {
   });
 
   const [language, setLanguage] = useState<Language>("PYTHON");
-  const [code, setCode] = useState("");
+  const [drafts, setDrafts] = useState<Record<Language, string>>({ PYTHON: "", JAVA: "" });
   const [submission, setSubmission] = useState<SubmissionResponse | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
 
   const stompClient = useRef<Client | null>(null);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -94,7 +97,10 @@ export default function DuelPage() {
       })
       .then((p) => {
         setProblem(p);
-        setCode(p.languageStubs[language] ?? "");
+        setDrafts({
+          PYTHON: p.languageStubs.PYTHON ?? "",
+          JAVA: p.languageStubs.JAVA ?? "",
+        });
       })
       .catch((err) => {
         if (err instanceof UnauthorizedError) {
@@ -103,11 +109,8 @@ export default function DuelPage() {
         }
         setLoadError(err instanceof ApiError ? err.message : "Could not load this match.");
       });
-    // language intentionally excluded - same reasoning as /problems/[id]:
-    // this effect fetches once on mount, language switching is handled
-    // separately.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matchId, router]);
+    // language intentionally excluded: this fetch runs once per match.
+  }, [matchId, router, retryToken]);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -158,7 +161,6 @@ export default function DuelPage() {
 
   function handleLanguageChange(next: Language) {
     setLanguage(next);
-    setCode(problem?.languageStubs[next] ?? "");
   }
 
   function pollSubmission(submissionId: string, attempt: number) {
@@ -188,7 +190,7 @@ export default function DuelPage() {
     setSubmitError(null);
     setSubmission(null);
     try {
-      const created = await createSubmission(problem.id, language, code, matchId);
+      const created = await createSubmission(problem.id, language, drafts[language], matchId);
       setSubmission(created);
       pollTimer.current = setTimeout(() => pollSubmission(created.id, 0), SUBMISSION_POLL_INTERVAL_MS);
     } catch (err) {
@@ -203,17 +205,17 @@ export default function DuelPage() {
 
   if (loadError) {
     return (
-      <main className="flex flex-1 items-center justify-center px-6">
-        <p className="text-sm text-danger">{loadError}</p>
-      </main>
+      <AppShell>
+        <ErrorState message={loadError} onRetry={() => { setLoadError(null); setMatch(null); setProblem(null); setRetryToken((value) => value + 1); }} />
+      </AppShell>
     );
   }
 
   if (!match || !problem) {
     return (
-      <main className="flex flex-1 items-center justify-center px-6">
-        <p className="text-sm text-fg-muted">Loading match...</p>
-      </main>
+      <AppShell>
+        <LoadingState label="Loading match..." />
+      </AppShell>
     );
   }
 
@@ -223,12 +225,13 @@ export default function DuelPage() {
   const youWon = match.status === "COMPLETED" && !match.isDraw && match.winnerId === selfId;
 
   return (
-    <main className="flex flex-1 flex-col">
-      <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 pt-8">
-        <Link href="/" aria-label="LeetDuel home">
-          <Logo />
-        </Link>
-      </div>
+    <AppShell>
+      <main className="flex flex-1 flex-col">
+        <div className="mx-auto w-full max-w-5xl px-6 pt-6">
+          <Link href="/matchmaking" className="text-sm text-fg-muted transition-colors hover:text-fg">
+            ← Back to matches
+          </Link>
+        </div>
 
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-2 px-6 pt-4">
         <div className="flex items-center gap-4">
@@ -272,11 +275,13 @@ export default function DuelPage() {
         </section>
 
         <section className="flex flex-col gap-4">
-          <div className="flex gap-1 rounded-full border border-border bg-surface-2 p-1">
+          <div role="tablist" aria-label="Programming language" className="flex gap-1 rounded-full border border-border bg-surface-2 p-1">
             {(["PYTHON", "JAVA"] as const).map((lang) => (
               <button
                 key={lang}
                 type="button"
+                role="tab"
+                aria-selected={language === lang}
                 onClick={() => handleLanguageChange(lang)}
                 className={`flex-1 rounded-full py-2 text-sm font-medium transition-colors ${
                   language === lang ? "bg-accent text-accent-ink" : "text-fg-muted hover:text-fg"
@@ -287,13 +292,15 @@ export default function DuelPage() {
             ))}
           </div>
 
-          <textarea
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            spellCheck={false}
-            disabled={match.status === "COMPLETED"}
-            className="h-72 w-full resize-none rounded-xl border border-border-strong bg-surface-2 p-4 font-mono text-sm text-fg outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50"
-          />
+          <div>
+            <h2 className="mb-2 text-sm font-medium text-fg">Your solution</h2>
+            <CodeEditor
+              value={drafts[language]}
+              language={language}
+              disabled={submitting || match.status === "COMPLETED"}
+              onChange={(value) => setDrafts((current) => ({ ...current, [language]: value }))}
+            />
+          </div>
 
           <Button
             variant="primary"
@@ -301,13 +308,13 @@ export default function DuelPage() {
             onClick={handleSubmit}
             className="w-full"
           >
-            {submitting ? <ArrowClockwise className="animate-spin" size={18} weight="bold" /> : "Submit"}
+            {submitting ? <ArrowClockwise className="animate-spin" size={18} weight="bold" /> : "Check solution"}
           </Button>
 
           {submitError && <p className="text-sm text-danger">{submitError}</p>}
 
           {submission && (
-            <div className="rounded-xl border border-border bg-surface p-4">
+            <div aria-live="polite" className="rounded-xl border border-border bg-surface p-4">
               {submission.status === "PENDING" ? (
                 <p className="text-sm text-fg-muted">Judging...</p>
               ) : (
@@ -319,6 +326,7 @@ export default function DuelPage() {
           )}
         </section>
       </div>
-    </main>
+      </main>
+    </AppShell>
   );
 }

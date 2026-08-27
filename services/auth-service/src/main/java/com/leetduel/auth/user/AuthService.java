@@ -75,7 +75,7 @@ public class AuthService {
         user.setPasswordHash(passwordEncoder.encode(rawPassword));
         user = userRepository.save(user);
 
-        writeUserCreatedOutboxEvent(user.getId());
+        writeUserCreatedOutboxEvent(user.getId(), user.getUsername());
 
         String rawVerificationToken = issueVerificationToken(user.getId(), TokenType.EMAIL_VERIFICATION, EMAIL_VERIFICATION_TTL);
         // @Async (see EmailService) - the send happens on a background
@@ -208,14 +208,14 @@ public class AuthService {
         verificationTokenRepository.save(token);
     }
 
-    private void writeUserCreatedOutboxEvent(UUID userId) throws Exception {
+    private void writeUserCreatedOutboxEvent(UUID userId, String username) throws Exception {
         // Written in the SAME transaction as the user row (transactional
         // outbox) - see OutboxRelay for the full reasoning: user-service
         // needs a profile row created for every new account, and this is
         // the one place account creation happens.
         OutboxEvent outboxEvent = new OutboxEvent();
         outboxEvent.setEventType("user.created");
-        outboxEvent.setPayload(objectMapper.writeValueAsString(new UserCreatedEvent(userId)));
+        outboxEvent.setPayload(objectMapper.writeValueAsString(new UserCreatedEvent(userId, username)));
         outboxEventRepository.save(outboxEvent);
     }
 }

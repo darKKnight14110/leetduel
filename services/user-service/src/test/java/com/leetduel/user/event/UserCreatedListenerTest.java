@@ -10,6 +10,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.UUID;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -28,10 +29,10 @@ class UserCreatedListenerTest {
         // Arrange
         UUID userId = UUID.randomUUID();
         UserCreatedListener listener = new UserCreatedListener(userProfileRepository);
-        when(userProfileRepository.existsById(userId)).thenReturn(false);
+        when(userProfileRepository.findById(userId)).thenReturn(Optional.empty());
 
         // Act
-        listener.onUserCreated(new UserCreatedEvent(userId));
+        listener.onUserCreated(new UserCreatedEvent(userId, "alice"));
 
         // Assert
         ArgumentCaptor<UserProfile> captor = ArgumentCaptor.forClass(UserProfile.class);
@@ -45,10 +46,13 @@ class UserCreatedListenerTest {
         // at-least-once), which is expected to happen sometimes.
         UUID userId = UUID.randomUUID();
         UserCreatedListener listener = new UserCreatedListener(userProfileRepository);
-        when(userProfileRepository.existsById(userId)).thenReturn(true);
+        UserProfile existing = new UserProfile();
+        existing.setUserId(userId);
+        existing.setUsername("alice");
+        when(userProfileRepository.findById(userId)).thenReturn(Optional.of(existing));
 
         // Act
-        listener.onUserCreated(new UserCreatedEvent(userId));
+        listener.onUserCreated(new UserCreatedEvent(userId, "alice"));
 
         // Assert
         verify(userProfileRepository, never()).save(any());
@@ -61,11 +65,11 @@ class UserCreatedListenerTest {
         // constraint rejects the duplicate, which the listener must absorb.
         UUID userId = UUID.randomUUID();
         UserCreatedListener listener = new UserCreatedListener(userProfileRepository);
-        when(userProfileRepository.existsById(userId)).thenReturn(false);
+        when(userProfileRepository.findById(userId)).thenReturn(Optional.empty());
         when(userProfileRepository.save(any())).thenThrow(new DataIntegrityViolationException("duplicate key"));
 
         // Act & Assert - must not propagate, a thrown exception here would
         // nack the message and trigger endless redelivery.
-        listener.onUserCreated(new UserCreatedEvent(userId));
+        listener.onUserCreated(new UserCreatedEvent(userId, "alice"));
     }
 }

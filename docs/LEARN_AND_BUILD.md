@@ -88,7 +88,7 @@ Prerequisite reading: §1 (Spring Boot/microservices), §3 (auth), §7 (Docker/C
 Delivered:
 1. Repo structure: one folder per service (`auth-service`, `gateway`, `user-service`, ...), shared `docker-compose.infra.yml` at root.
 2. `docker-compose.infra.yml` bringing up Postgres, Redis, and RabbitMQ as containers.
-3. Auth Service: signup/login/verification/password reset, refresh-token rotation, Google OAuth, JWT issuance, transactional outbox for `user.events`.
+3. Auth Service: signup/login/verification/password reset, refresh-token rotation, JWT issuance, transactional outbox for `user.events`.
 4. API Gateway: Spring Cloud Gateway, JWT validation, routing, token-bucket rate limiting.
 5. User/Profile Service: profile CRUD.
 6. **Demo checkpoint (met):** register a user through the gateway, log in, get a JWT, hit a protected profile endpoint with it.
@@ -133,11 +133,19 @@ Plan:
 3. User Service stores transactional append-only ELO history; Duel Service exposes paginated match history. The frontend composes these independent reads on the authenticated profile page.
 4. **Demo checkpoint:** after a duel, both players' new ELO shows up correctly ranked on the leaderboard, and the profile shows updated stats, rating history, and match history.
 
-### Phase 5 — Frontend React SPA
+### Phase 5 — Ship-ready Frontend React SPA
 Prerequisite reading: §11 (React/TS/Monaco). Built incrementally alongside Phases 0-4's API surface rather than as one final phase.
 
-Status: landing page, login/signup (wired to Auth Service), problem browser, matchmaking queue screen, live duel view (`/duel/[matchId]`, opponent progress bar driven by the WS connection), leaderboard page, and profile/stats page with rating history chart are implemented. Remaining:
-1. Monaco code editor (currently a plain textarea — a named scope trade-off, not a silent one).
+Delivered:
+1. Product copy and metadata use clear, professional language: “Practice with purpose. Compete in real time.” User-facing copy uses match/challenge terminology while technical routes retain duel terminology.
+2. Monaco editor is loaded client-only with Python and Java syntax highlighting, an application theme, responsive layout, read-only completed matches, and separate drafts per language so switching languages never discards work.
+3. Protected screens share responsive navigation with active states, mobile menus, logout, skip links, visible focus rings, retryable failures, useful empty states, a branded 404 page, and reduced-motion-safe animation.
+4. Auth Service's `user.created` event now includes the username. User Service projects that public handle into its own Postgres profile schema through a Flyway migration and exposes bounded `GET /users/public-identities?ids=...` reads.
+5. Problem Service exposes bounded authenticated `GET /problems/summaries?ids=...` reads so profile history can show problem titles without coupling Duel Service to Problem Service data.
+6. Leaderboard and profile pages enrich IDs with batch reads and use short-ID fallbacks when projections are temporarily unavailable.
+7. Vitest + jsdom + React Testing Library cover leaderboard loading/success/empty/error/partial-identity states, authentication success/failure, problem loading/retry/unauthorized states, language switching, and judging submission lockout. Controller contract tests cover the bounded identity and problem-summary response shapes and request limits. `agent-browser` acceptance checks cover desktop and mobile navigation, redirects, screenshots, visible focus, overflow, reduced motion, and console errors.
+8. **Verification evidence:** frontend lint, typecheck, 10 Vitest tests, and the offline production build pass locally. The browser pass confirmed the professional landing-page copy, responsive shell, mobile menu, protected redirects, branded 404, and no console errors.
+9. **Demo checkpoint:** a user can sign in, browse a problem, edit a real Monaco buffer, switch languages without losing drafts, find a match, view public usernames on rankings, and inspect a readable profile history.
 
 ### Phase 6 — Kubernetes deployment
 Prerequisite reading: §9 (K8s/Helm)

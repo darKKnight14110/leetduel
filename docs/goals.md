@@ -2,7 +2,7 @@
 
 Target: backend-heavy systems project demonstrating full system-design-primer coverage for top systems/backend engineering roles.
 
-Status: Phase 0 (foundations), Phase 1 (core judge loop), Phase 2 (ELO + matchmaking), Phase 3 (real-time duel), and Phase 4 (leaderboard + profile/stats) are implemented. See "Implementation phases" below for the full breakdown.
+Status: Phase 0 (foundations), Phase 1 (core judge loop), Phase 2 (ELO + matchmaking), Phase 3 (real-time duel), Phase 4 (leaderboard + profile/stats), and Phase 5 (ship-ready frontend) are implemented. See "Implementation phases" below for the full breakdown.
 
 ## Pitch
 
@@ -17,8 +17,8 @@ Full platform, built in phases. Each phase independently demoable and resume-wor
 | Service | Responsibility | Store |
 |---|---|---|
 | API Gateway | Spring Cloud Gateway, JWT validation, routing, token-bucket rate limiting (atomic Redis Lua script — see "Auth / Gateway" below) | — |
-| Auth Service | signup/login, JWT issuance (OAuth2/Spring Security) | Postgres |
-| User/Profile Service | profile, ELO + external ratings + duel stats; consumes `match.completed` to apply ELO delta and update W/L/D counters (sole writer of ELO) | Postgres |
+| Auth Service | signup/login, JWT issuance (Spring Security) | Postgres |
+| User/Profile Service | profile, public username projection, ELO + external ratings + match stats; consumes `match.completed` to apply ELO delta and update W/L/D counters (sole writer of ELO) | Postgres |
 | Problem Service | problem CRUD, test cases, tags/difficulty | Postgres |
 | Submission Service | accepts code, publishes judge job | Postgres (metadata) |
 | Judge Worker (pool) | consumes RabbitMQ job, spins Docker sandbox, runs code vs test cases, scores, emits result | Stateless; result is persisted by Submission Service |
@@ -79,7 +79,7 @@ Kubernetes. Real manifests/Helm charts, k8s-native service discovery (no separat
 
 ## Auth / Gateway (implemented)
 
-Spring Cloud Gateway in front of everything: JWT validation, routing, rate limiting. Separate Auth Service issues JWTs (email/password + Google OAuth2/Spring Security, refresh-token rotation). Keeps whole stack in Spring ecosystem.
+Spring Cloud Gateway in front of everything: JWT validation, routing, rate limiting. Separate Auth Service issues JWTs (email/password + Spring Security, refresh-token rotation). Keeps whole stack in Spring ecosystem.
 
 Rate limiting is a token bucket, not a fixed window: bucket state (tokens + last-refill timestamp) lives in one Redis Hash key per client, refilled/consumed by a single atomic Lua `EVAL` (`scripts/token_bucket.lua`). Single-key-per-client makes this safe on a real Redis Cluster with no code changes (no CROSSSLOT risk from multi-key scripts), and the atomic EVAL removes the check-then-act race a plain GET/SET or INCR/EXPIRE pair would have under concurrent requests.
 
@@ -89,13 +89,13 @@ Prometheus + Grafana only for v1 (Spring Boot Actuator + Micrometer exposing `/a
 
 ## Frontend
 
-Full React + TypeScript SPA: Monaco code editor, problem browser, matchmaking/queue screen, live duel view (WS-driven opponent progress bar), leaderboard, profile/stats/rating history. Landing page, login/signup (wired to Auth Service), problem browser, matchmaking/queue screen, live duel view (`/duel/[matchId]`, `@stomp/stompjs` over native WebSocket), leaderboard, and profile/stats views are implemented. Code editor is still a plain textarea, not Monaco — a named scope trade-off, not a silent one (see the Phase 5 plan).
+Full React + TypeScript SPA: Monaco code editor, problem browser, matchmaking/queue screen, live duel view (WS-driven opponent progress bar), leaderboard, profile/stats/rating history, responsive navigation, accessible state handling, and deterministic Vitest/Testing Library coverage. Phase 5 verification includes 10 frontend tests, lint, typecheck, an offline production build, and desktop/mobile `agent-browser` acceptance checks. The product uses professional match/challenge copy while retaining duel terminology only for technical routes and service contracts.
 
 ## Open questions / deferred decisions
 
 - Historical leaderboard rebuild/replay strategy if Redis state is lost (the current leaderboard is a derived materialized view)
 - Judge sandbox anti-cheat considerations (plagiarism detection is explicitly out of v1 scope unless revisited)
-- Testing strategy per service (unit/integration/e2e, contract tests between services)
+- Broader CI/CD coverage and contract-test automation beyond the Phase 5 frontend/API checks
 - CI/CD pipeline
 - Exact k8s manifest/Helm chart layout
 These get resolved incrementally as each phase is implemented, not up front. (Matchmaking join-request expiry is resolved as of Phase 2; Duel/Match's schema, WS auth, and cross-instance fanout are resolved as of Phase 3 — see "Live duel flow" and "Real-time transport" above.)
@@ -107,6 +107,6 @@ These get resolved incrementally as each phase is implemented, not up front. (Ma
 2. **ELO + Matchmaking — done.** Matchmaking Service, Redis expanding-window pairing via an atomic Lua script, transactional-outbox `match.created` publish.
 3. **Real-time duel — done.** Duel Service (match lifecycle, optimistic-lock-guarded win/timeout logic, ELO calculator, transactional-outbox `duel.progress`/`match.completed` publish), WS Gateway (STOMP over WebSocket, JWT-on-CONNECT auth, RabbitMQ → Redis Pub/Sub → local `SimpleBroker` fanout), `matchId`/`userId` threaded through Submission Service and Judge Worker, User Service's `match.completed` consumer (sole ELO writer, idempotency-guarded), live duel frontend page.
 4. **Leaderboard + profile/stats — done.** Leaderboard Service consumes `match.completed` into Redis global/weekly/season sorted-set projections with Lua-backed idempotency for additive period scores; User Service stores transactional ELO history; Duel Service exposes paginated match history; frontend exposes public `/leaderboard` and authenticated `/profile` views.
-5. Frontend React SPA (built incrementally alongside each phase's API surface rather than as one final phase).
+5. **Ship-ready frontend — done.** Monaco editor with per-language draft preservation; responsive shared navigation; accessible loading, empty, error, retry, and 404 states; public username and problem-summary batch reads; frontend component tests; and desktop/mobile browser acceptance checks.
 6. Kubernetes deployment: Helm charts, HPA, migrate from docker-compose to k8s.
 7. Observability: Prometheus + Grafana dashboards (service health, queue depth, judge latency, match wait time, per-service request rate/latency/error rate).

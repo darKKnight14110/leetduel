@@ -7,5 +7,5 @@ import java.util.UUID;
 // user-service's consumer - two independently deployable services should
 // not share a compile-time dependency just for a message shape; the wire
 // contract (JSON field names) is the actual interface between them.
-public record UserCreatedEvent(UUID userId) {
+public record UserCreatedEvent(UUID userId, String username) {
 }

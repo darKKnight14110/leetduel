@@ -107,7 +107,7 @@ export function AuthCard() {
           />
         </Field>
 
-        {error && <p className="text-sm text-danger">{error}</p>}
+        {error && <p role="alert" className="text-sm text-danger">{error}</p>}
 
         <Button type="submit" variant="primary" disabled={loading} className="mt-2 w-full">
           {loading ? (
@@ -136,6 +136,7 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={`flex-1 rounded-full py-2 text-sm font-medium transition-colors ${
         active ? "bg-accent text-accent-ink" : "text-fg-muted hover:text-fg"
       }`}
@@ -172,7 +173,7 @@ function LoggedInPanel({ result, onLogout }: { result: AuthResult; onLogout: () 
       <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-success/15">
         <CheckCircle size={28} weight="fill" className="text-success" />
       </div>
-      <h2 className="mt-4 text-xl font-medium text-fg">You&apos;re logged in</h2>
+      <h2 className="mt-4 text-xl font-medium text-fg">Your account is ready</h2>
       <p className="mt-1 font-mono text-xs text-fg-muted break-all">{subject}</p>
 
       <div className="mt-4 flex justify-center">
@@ -186,8 +187,7 @@ function LoggedInPanel({ result, onLogout }: { result: AuthResult; onLogout: () 
       </div>
 
       <p className="mt-6 text-sm text-fg-muted">
-        Access and refresh tokens were issued by auth-service. The access token is kept in
-        localStorage so it survives navigating to the problem set below.
+        Your session is saved on this device so you can move between practice, matches, and your profile.
       </p>
 
       <Button href="/problems" variant="primary" className="mt-6 w-full">

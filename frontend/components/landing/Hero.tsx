@@ -21,17 +21,17 @@ export function Hero() {
           className="md:col-span-7"
         >
           <h1 className="text-5xl font-semibold tracking-tighter leading-[0.95] text-fg md:text-6xl lg:text-7xl">
-            Stop grinding alone.
+            Practice with purpose.
             <br />
-            Start dueling.
+            Compete in real time.
           </h1>
           <p className="mt-6 max-w-[46ch] text-lg leading-relaxed text-fg-muted">
-            Queue up, get matched by rating, and race an opponent to the
-            correct solution. Same problem, same clock, one winner.
+            Solve the same coding challenge as another developer, race the
+            clock, and build an ELO rating from every result.
           </p>
           <div className="mt-8 flex items-center gap-4">
             <Button href="/login" variant="primary" className="px-8 py-3.5 text-base">
-              Start Dueling
+              Find a match
             </Button>
             <Button href="#how-it-works" variant="ghost" className="px-8 py-3.5 text-base">
               See how it works

@@ -8,17 +8,17 @@ import { motion, useReducedMotion } from "motion/react";
 // Section 9.C).
 const steps = [
   {
-    title: "Queue up",
+    title: "Find a match",
     body: "Tell us your rating and we find someone in your range. Matches typically form in under a minute.",
     wide: true,
   },
   {
-    title: "Solve live",
+    title: "Solve under pressure",
     body: "Both players get the same problem and the same clock. Progress updates in real time, no code leaks.",
   },
   {
-    title: "Climb the ladder",
-    body: "Win and your rating climbs. Lose and you're matched softer next time. Simple ELO, no gimmicks.",
+    title: "Build your rating",
+    body: "Win and your rating climbs. Lose and your next match adjusts accordingly. Simple ELO, no gimmicks.",
   },
 ];
 
@@ -35,10 +35,10 @@ export function HowItWorks() {
         {steps.map((step, i) => (
           <motion.div
             key={step.title}
-            initial={reduce ? false : { opacity: 0, y: 20 }}
+            initial={false}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.4 }}
-            transition={{ duration: 0.5, delay: i * 0.08, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: reduce ? 0 : 0.5, delay: reduce ? 0 : i * 0.08, ease: [0.16, 1, 0.3, 1] }}
             className={`rounded-2xl border border-border bg-surface p-8 ${
               step.wide ? "md:col-span-2" : ""
             }`}

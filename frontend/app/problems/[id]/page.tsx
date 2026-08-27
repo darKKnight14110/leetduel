@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowClockwise } from "@phosphor-icons/react";
-import { Logo } from "@/components/Logo";
+import { AppShell } from "@/components/layout/AppShell";
+import { CodeEditor } from "@/components/editor/CodeEditor";
+import { ErrorState, LoadingState } from "@/components/ui/PageState";
 import { Button } from "@/components/ui/Button";
 import { DifficultyBadge } from "@/components/problems/DifficultyBadge";
 import {
@@ -44,11 +46,12 @@ export default function ProblemDetailPage() {
   const router = useRouter();
   const [problem, setProblem] = useState<ProblemDetail | null>(null);
   const [language, setLanguage] = useState<Language>("PYTHON");
-  const [code, setCode] = useState("");
+  const [drafts, setDrafts] = useState<Record<Language, string>>({ PYTHON: "", JAVA: "" });
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submission, setSubmission] = useState<SubmissionResponse | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -59,7 +62,10 @@ export default function ProblemDetailPage() {
     getProblem(id)
       .then((detail) => {
         setProblem(detail);
-        setCode(detail.languageStubs[language] ?? "");
+        setDrafts({
+          PYTHON: detail.languageStubs.PYTHON ?? "",
+          JAVA: detail.languageStubs.JAVA ?? "",
+        });
       })
       .catch((err) => {
         if (err instanceof UnauthorizedError) {
@@ -68,11 +74,8 @@ export default function ProblemDetailPage() {
         }
         setLoadError(err instanceof ApiError ? err.message : "Could not load this problem.");
       });
-    // language intentionally excluded - this effect only fetches the
-    // problem once on mount; switching languages is handled by
-    // handleLanguageChange below so it doesn't refetch.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, router]);
+    // language intentionally excluded: this fetch runs once per problem.
+  }, [id, router, retryToken]);
 
   useEffect(() => {
     return () => {
@@ -80,15 +83,8 @@ export default function ProblemDetailPage() {
     };
   }, []);
 
-  // Switching languages resets the editor to that language's stub rather
-  // than trying to preserve in-progress edits across a language switch -
-  // there is no shared AST between a Python and a Java solution to
-  // translate between, so "keep what you typed" would just leave stale,
-  // wrong-language text sitting in the box. Simplest correct behavior for
-  // v1; a real product would at least warn before discarding edits.
   function handleLanguageChange(next: Language) {
     setLanguage(next);
-    setCode(problem?.languageStubs[next] ?? "");
   }
 
   // A plain function, not useCallback - it recurses into itself via
@@ -124,7 +120,7 @@ export default function ProblemDetailPage() {
     setSubmitError(null);
     setSubmission(null);
     try {
-      const created = await createSubmission(problem.id, language, code);
+      const created = await createSubmission(problem.id, language, drafts[language]);
       setSubmission(created);
       pollTimer.current = setTimeout(() => pollSubmission(created.id, 0), POLL_INTERVAL_MS);
     } catch (err) {
@@ -139,34 +135,32 @@ export default function ProblemDetailPage() {
 
   if (loadError) {
     return (
-      <main className="flex flex-1 items-center justify-center px-6">
-        <p className="text-sm text-danger">{loadError}</p>
-      </main>
+      <AppShell>
+        <ErrorState message={loadError} onRetry={() => { setLoadError(null); setProblem(null); setRetryToken((value) => value + 1); }} />
+      </AppShell>
     );
   }
 
   if (!problem) {
     return (
-      <main className="flex flex-1 items-center justify-center px-6">
-        <p className="text-sm text-fg-muted">Loading...</p>
-      </main>
+      <AppShell>
+        <LoadingState label="Loading problem..." />
+      </AppShell>
     );
   }
 
   const results = submission ? parseTestResults(submission) : [];
 
   return (
-    <main className="flex flex-1 flex-col">
-      <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 pt-8">
-        <Link href="/" aria-label="LeetDuel home">
-          <Logo />
-        </Link>
-        <Link href="/problems" className="text-sm text-fg-muted hover:text-fg">
-          All problems
-        </Link>
-      </div>
+    <AppShell>
+      <main className="flex flex-1 flex-col">
+        <div className="mx-auto w-full max-w-5xl px-6 pt-6">
+          <Link href="/problems" className="text-sm text-fg-muted transition-colors hover:text-fg">
+            ← Back to practice
+          </Link>
+        </div>
 
-      <div className="mx-auto grid w-full max-w-5xl flex-1 gap-8 px-6 py-10 md:grid-cols-2">
+        <div className="mx-auto grid w-full max-w-5xl flex-1 gap-8 px-6 py-8 md:grid-cols-2">
         <section>
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-semibold text-fg">{problem.title}</h1>
@@ -186,11 +180,13 @@ export default function ProblemDetailPage() {
         </section>
 
         <section className="flex flex-col gap-4">
-          <div className="flex gap-1 rounded-full border border-border bg-surface-2 p-1">
+          <div role="tablist" aria-label="Programming language" className="flex gap-1 rounded-full border border-border bg-surface-2 p-1">
             {(["PYTHON", "JAVA"] as const).map((lang) => (
               <button
                 key={lang}
                 type="button"
+                role="tab"
+                aria-selected={language === lang}
                 onClick={() => handleLanguageChange(lang)}
                 className={`flex-1 rounded-full py-2 text-sm font-medium transition-colors ${
                   language === lang ? "bg-accent text-accent-ink" : "text-fg-muted hover:text-fg"
@@ -201,29 +197,24 @@ export default function ProblemDetailPage() {
             ))}
           </div>
 
-          {/* Plain textarea, not Monaco - a real explicit trade-off, not a
-              silent one. The Phase 1 plan's function-signature-harness
-              decision was already the big scope call for this phase;
-              wiring Monaco (syntax highlighting, language server hookup)
-              is a genuinely separate, sizable frontend task on its own,
-              not something to fold in silently while extending the
-              frontend to exercise this backend. Revisit as a dedicated
-              follow-up if this needs to feel like a real editor. */}
-          <textarea
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            spellCheck={false}
-            className="h-72 w-full resize-none rounded-xl border border-border-strong bg-surface-2 p-4 font-mono text-sm text-fg outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-          />
+          <div>
+            <h2 className="mb-2 text-sm font-medium text-fg">Your solution</h2>
+            <CodeEditor
+              value={drafts[language]}
+              language={language}
+              disabled={submitting}
+              onChange={(value) => setDrafts((current) => ({ ...current, [language]: value }))}
+            />
+          </div>
 
-          <Button variant="primary" disabled={submitting} onClick={handleSubmit} className="w-full">
-            {submitting ? <ArrowClockwise className="animate-spin" size={18} weight="bold" /> : "Submit"}
+          <Button variant="primary" disabled={submitting || drafts[language].trim().length === 0} onClick={handleSubmit} className="w-full">
+            {submitting ? <ArrowClockwise className="animate-spin" size={18} weight="bold" /> : "Check solution"}
           </Button>
 
           {submitError && <p className="text-sm text-danger">{submitError}</p>}
 
           {submission && (
-            <div className="rounded-xl border border-border bg-surface p-4">
+            <div aria-live="polite" className="rounded-xl border border-border bg-surface p-4">
               {submission.status === "PENDING" ? (
                 <p className="text-sm text-fg-muted">Judging...</p>
               ) : (
@@ -249,6 +240,7 @@ export default function ProblemDetailPage() {
           )}
         </section>
       </div>
-    </main>
+      </main>
+    </AppShell>
   );
 }

@@ -1,6 +1,6 @@
 # LeetDuel
 
-LeetDuel is a distributed coding platform where developers practice problems and compete in real-time, ELO-ranked 1v1 duels.
+LeetDuel is a distributed coding platform where developers practice problems and compete in real-time, ELO-ranked 1v1 matches.
 
 It is built as a backend-heavy systems project rather than a CRUD application with a queue attached. The implementation focuses on service boundaries, asynchronous workflows, safe execution of untrusted code, Redis-backed coordination, real-time fanout, and failure-aware data consistency.
 
@@ -11,6 +11,7 @@ It is built as a backend-heavy systems project rather than a CRUD application wi
 - Implemented horizontally safe ELO matchmaking with Redis sorted sets and atomic Lua scripts, plus optimistic-lock-guarded duel completion and transactional outbox publishing.
 - Implemented STOMP real-time duel updates through a standalone WebSocket gateway using RabbitMQ to Redis Pub/Sub to local broker fanout.
 - Added a Redis materialized leaderboard with global, weekly, and seasonal rankings, atomic period-score idempotency, rank lookup, and surrounding-player queries.
+- Shipped a responsive Next.js product experience with Monaco editing, accessible state handling, public usernames, and deterministic frontend tests.
 
 ## Product flow
 
@@ -66,8 +67,8 @@ flowchart TB
 | Service | Responsibility | Primary technology / state |
 |---|---|---|
 | API Gateway | JWT validation, routing, CORS, token-bucket rate limiting | Spring WebFlux, Redis Lua |
-| Auth Service | Signup, verification, login, refresh rotation, password reset, Google OAuth | Spring Security, JWT, PostgreSQL |
-| User/Profile Service | ELO, duel stats, rating history, public profile reads | Spring Data JPA, PostgreSQL |
+| Auth Service | Signup, verification, login, refresh rotation, password reset | Spring Security, JWT, PostgreSQL |
+| User/Profile Service | ELO, match stats, rating history, public identity/profile reads | Spring Data JPA, PostgreSQL |
 | Problem Service | Problems, tags, difficulty, test cases, language stubs | Spring Data JPA, PostgreSQL |
 | Submission Service | Submission metadata, judge-job publication, verdict reads | Spring Data JPA, PostgreSQL JSONB |
 | Judge Worker | Sandboxed Python/Java execution and verdict publication | Spring AMQP, Docker Engine |
@@ -97,6 +98,12 @@ Kafka and event replay are intentionally deferred. At this project's scale, Rabb
 Redis stores hot or derived state: matchmaking indexes, rate-limit buckets, WebSocket Pub/Sub relay state, and leaderboard sorted sets. Durable source-of-truth records remain in service-owned PostgreSQL schemas.
 
 Lua scripts close check-then-act races for token buckets and matchmaking. Leaderboard period keys include the ISO week or calendar quarter, so period rollover starts writing to a new key without a reset job.
+
+### Public identity projection
+
+Auth Service remains the source of truth for usernames. Its transactional `user.created` event carries both the user ID and username, and User Service stores a nullable username projection beside the profile row. Public leaderboard reads stay ranking-only; the frontend resolves visible names through one bounded `GET /users/public-identities?ids=...` request instead of adding a database join or an N+1 call pattern.
+
+The projection is eventually consistent because RabbitMQ delivery is at least once. The listener is idempotent, and the frontend falls back to a short player ID when an older profile has not received a username yet. This gives the product readable identities without coupling Leaderboard Service to Auth Service's database.
 
 ### Transactional outbox
 
@@ -128,7 +135,7 @@ This lets two players connected to different WS Gateway instances receive the sa
 | Messaging | RabbitMQ, transactional outbox, Jackson message conversion |
 | Hot state | Redis, sorted sets, Pub/Sub, atomic Lua scripts |
 | Code execution | Docker Engine, docker-java, Python 3.12, Java 21 |
-| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4, STOMP.js |
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4, Monaco, STOMP.js, Vitest |
 | Planned next | Kubernetes/Helm deployment and Prometheus/Grafana dashboards |
 
 ## Run locally
@@ -197,9 +204,12 @@ Frontend checks:
 ```bash
 cd frontend
 npm run lint
-npx tsc --noEmit
+npm run typecheck
+npm test -- --run
 npm run build
 ```
+
+Phase 5 evidence: the frontend gate passes with 10 Vitest tests, lint, typecheck, and an offline production build. `agent-browser` checks at desktop and mobile widths covered the landing page, responsive navigation, protected-page redirects, branded 404, screenshots, keyboard-visible focus, and zero console errors. Backend controller contract tests cover the bounded identity and problem-summary response shapes and request limits.
 
 Backend checks can be run per service:
 
@@ -217,6 +227,7 @@ The most valuable integration checks use Testcontainers for Redis Lua-script con
 - Phase 2: Redis-backed ELO matchmaking complete.
 - Phase 3: real-time duel lifecycle and WebSocket fanout complete.
 - Phase 4: leaderboard, profile stats, ELO history, and match history complete.
+- Phase 5: ship-ready frontend, Monaco editor, identity enrichment, responsive navigation, and UI tests complete.
 - Next: Kubernetes deployment, then Prometheus/Grafana observability.
 
 For the deeper design rationale and learning path, see [`docs/goals.md`](docs/goals.md) and [`docs/LEARN_AND_BUILD.md`](docs/LEARN_AND_BUILD.md).

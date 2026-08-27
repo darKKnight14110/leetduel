@@ -4,11 +4,14 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowClockwise } from "@phosphor-icons/react";
-import { Logo } from "@/components/Logo";
+import { AppShell } from "@/components/layout/AppShell";
+import { Button } from "@/components/ui/Button";
 import {
   getProfileStats,
   getEloHistory,
   getMatchHistory,
+  getPublicIdentities,
+  getProblemSummaries,
   decodeJwtPayload,
   UnauthorizedError,
   ApiError,
@@ -36,6 +39,15 @@ export default function ProfilePage() {
   const [matchPage, setMatchPage] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [matchError, setMatchError] = useState<string | null>(null);
+  const [matchRetryToken, setMatchRetryToken] = useState(0);
+  const [retryToken, setRetryToken] = useState(0);
+  const [username, setUsername] = useState<string | null>(null);
+  const [identities, setIdentities] = useState<Record<string, string>>({});
+  const [problemTitles, setProblemTitles] = useState<Record<string, string>>({});
+  const [loadedMatchRequest, setLoadedMatchRequest] = useState<string | null>(null);
+  const matchRequestKey = `${matchPage}:${matchRetryToken}`;
+  const matchesLoading = loadedMatchRequest !== matchRequestKey;
 
   useEffect(() => {
     if (!selfId) {
@@ -55,51 +67,87 @@ export default function ProfilePage() {
         }
         setLoadError(err instanceof ApiError ? err.message : "Could not load your profile.");
       });
-  }, [selfId, router]);
+    getPublicIdentities([selfId])
+      .then((resolvedIdentities) => {
+        const identity = resolvedIdentities[0];
+        if (identity) {
+          setUsername(identity.username);
+          setIdentities((current) => ({ ...current, [identity.userId]: identity.username }));
+        }
+      })
+      .catch(() => undefined);
+  }, [selfId, router, retryToken]);
 
   useEffect(() => {
     if (!selfId) return;
     getMatchHistory(selfId, matchPage)
       .then((res) => {
+        setMatchError(null);
         setMatches(res.content);
         setTotalPages(res.totalPages);
+        const opponentIds = res.content.map((match) => match.player1Id === selfId ? match.player2Id : match.player1Id);
+        const problemIds = res.content.map((match) => match.problemId);
+        const uniqueOpponentIds = [...new Set(opponentIds)];
+        const uniqueProblemIds = [...new Set(problemIds)];
+        return Promise.all([
+          uniqueOpponentIds.length ? getPublicIdentities(uniqueOpponentIds).catch(() => []) : Promise.resolve([]),
+          uniqueProblemIds.length ? getProblemSummaries(uniqueProblemIds).catch(() => []) : Promise.resolve([]),
+        ]);
       })
-      .catch(() => {
-        // Match history is secondary to the stats panel above - a failure
-        // here shouldn't blank out a page that otherwise loaded fine.
+      .then(([resolvedIdentities, summaries]) => {
+        setIdentities((current) => ({
+          ...current,
+          ...Object.fromEntries(resolvedIdentities.map((identity) => [identity.userId, identity.username])),
+        }));
+        setProblemTitles((current) => ({
+          ...current,
+          ...Object.fromEntries(summaries.map((summary) => [summary.id, summary.title])),
+        }));
+      })
+      .catch((err) => {
+        if (err instanceof UnauthorizedError) {
+          router.push("/login");
+          return;
+        }
+        setMatchError(err instanceof ApiError ? err.message : "Could not load match history.");
+      })
+      .finally(() => {
+        setLoadedMatchRequest(matchRequestKey);
       });
-  }, [selfId, matchPage]);
+  }, [selfId, matchPage, router, matchRequestKey]);
 
   if (loadError) {
     return (
-      <main className="flex flex-1 items-center justify-center px-6">
-        <p className="text-sm text-danger">{loadError}</p>
-      </main>
+      <AppShell>
+        <main className="flex flex-1 items-center justify-center px-6">
+          <div className="flex max-w-sm flex-col items-center gap-4 text-center">
+            <p className="text-sm text-danger">{loadError}</p>
+            <Button variant="ghost" onClick={() => { setLoadError(null); setRetryToken((value) => value + 1); }}>
+              Try again
+            </Button>
+          </div>
+        </main>
+      </AppShell>
     );
   }
 
   if (!stats) {
     return (
-      <main className="flex flex-1 items-center justify-center px-6">
-        <ArrowClockwise className="animate-spin text-accent" size={24} weight="bold" />
-      </main>
+      <AppShell>
+        <main className="flex flex-1 items-center justify-center px-6">
+          <ArrowClockwise className="animate-spin text-accent" size={24} weight="bold" />
+        </main>
+      </AppShell>
     );
   }
 
-  const totalDuels = stats.duelsWon + stats.duelsLost + stats.duelsDrawn;
+  const totalMatches = stats.duelsWon + stats.duelsLost + stats.duelsDrawn;
 
   return (
-    <main className="flex flex-1 flex-col">
-      <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-6 pt-8">
-        <Link href="/" aria-label="LeetDuel home">
-          <Logo />
-        </Link>
-        <Link href="/leaderboard" className="text-sm text-fg-muted hover:text-fg">
-          Leaderboard
-        </Link>
-      </div>
-
-      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 py-10">
+    <AppShell>
+      <main className="flex flex-1 flex-col">
+        <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 py-10">
+        {username && <p className="-mb-4 text-sm text-fg-muted">@{username}</p>}
         <section className="rounded-2xl border border-border bg-surface p-6">
           <div className="flex items-baseline justify-between">
             <h1 className="text-2xl font-semibold text-fg">{stats.elo}</h1>
@@ -108,23 +156,23 @@ export default function ProfilePage() {
           <div className="mt-4 grid grid-cols-3 gap-4 text-center text-sm">
             <div>
               <p className="font-semibold text-success">{stats.duelsWon}</p>
-              <p className="text-xs text-fg-muted">Won</p>
+              <p className="text-xs text-fg-muted">Matches won</p>
             </div>
             <div>
               <p className="font-semibold text-danger">{stats.duelsLost}</p>
-              <p className="text-xs text-fg-muted">Lost</p>
+              <p className="text-xs text-fg-muted">Matches lost</p>
             </div>
             <div>
               <p className="font-semibold text-fg">{stats.duelsDrawn}</p>
-              <p className="text-xs text-fg-muted">Drawn</p>
+              <p className="text-xs text-fg-muted">Draws</p>
             </div>
           </div>
-          {totalDuels === 0 && (
-            <p className="mt-4 text-center text-xs text-fg-muted">Play a duel to start building a rating history.</p>
+          {totalMatches === 0 && (
+            <p className="mt-4 text-center text-xs text-fg-muted">Find a match to start building a rating history.</p>
           )}
         </section>
 
-        {history.length > 1 && (
+        {history.length > 0 && (
           <section>
             <h2 className="mb-2 text-sm font-medium text-fg">Rating history</h2>
             <EloSparkline points={history} />
@@ -134,18 +182,35 @@ export default function ProfilePage() {
         <section>
           <h2 className="mb-2 text-sm font-medium text-fg">Match history</h2>
           <ol className="flex flex-col overflow-hidden rounded-2xl border border-border">
-            {matches.map((m) => (
-              <MatchHistoryRow key={m.matchId} match={m} selfId={selfId} />
+            {matchesLoading && (
+              <li className="p-6 text-center text-sm text-fg-muted">Loading match history...</li>
+            )}
+            {!matchesLoading && matchError && (
+              <li className="flex flex-col items-center gap-3 p-6 text-center">
+                <p className="text-sm text-danger">{matchError}</p>
+                <Button variant="ghost" onClick={() => setMatchRetryToken((value) => value + 1)}>Try again</Button>
+              </li>
+            )}
+            {!matchesLoading && !matchError && matches.map((m) => (
+              <MatchHistoryRow
+                key={m.matchId}
+                match={m}
+                selfId={selfId}
+                opponentName={identities[m.player1Id === selfId ? m.player2Id : m.player1Id]}
+                problemTitle={problemTitles[m.problemId]}
+                eloDelta={history.find((point) => point.matchId === m.matchId)?.eloDelta}
+              />
             ))}
-            {matches.length === 0 && (
-              <li className="p-6 text-center text-sm text-fg-muted">No duels played yet.</li>
+            {!matchesLoading && !matchError && matches.length === 0 && (
+              <li className="p-6 text-center text-sm text-fg-muted">No matches played yet.</li>
             )}
           </ol>
           {totalPages > 1 && (
             <div className="mt-3 flex justify-center gap-4 text-sm">
               <button
                 type="button"
-                disabled={matchPage === 0}
+                aria-label="Previous match history page"
+                disabled={matchPage === 0 || matchesLoading}
                 onClick={() => setMatchPage((p) => p - 1)}
                 className="text-fg-muted hover:text-fg disabled:opacity-40"
               >
@@ -156,7 +221,8 @@ export default function ProfilePage() {
               </span>
               <button
                 type="button"
-                disabled={matchPage >= totalPages - 1}
+                aria-label="Next match history page"
+                disabled={matchPage >= totalPages - 1 || matchesLoading}
                 onClick={() => setMatchPage((p) => p + 1)}
                 className="text-fg-muted hover:text-fg disabled:opacity-40"
               >
@@ -166,7 +232,8 @@ export default function ProfilePage() {
           )}
         </section>
       </div>
-    </main>
+      </main>
+    </AppShell>
   );
 }
 
@@ -182,7 +249,7 @@ function EloSparkline({ points }: { points: EloHistoryPoint[] }) {
   const range = max - min || 1;
 
   const coords = points.map((p, i) => {
-    const x = (i / (points.length - 1)) * width;
+    const x = points.length === 1 ? width / 2 : (i / (points.length - 1)) * width;
     const y = height - ((p.eloAfter - min) / range) * height;
     return `${x},${y}`;
   });
@@ -200,16 +267,42 @@ function EloSparkline({ points }: { points: EloHistoryPoint[] }) {
   );
 }
 
-function MatchHistoryRow({ match, selfId }: { match: MatchResponse; selfId: string | null }) {
+function MatchHistoryRow({
+  match,
+  selfId,
+  opponentName,
+  problemTitle,
+  eloDelta,
+}: {
+  match: MatchResponse;
+  selfId: string | null;
+  opponentName?: string;
+  problemTitle?: string;
+  eloDelta?: number;
+}) {
   const youWon = match.status === "COMPLETED" && !match.isDraw && match.winnerId === selfId;
   const youLost = match.status === "COMPLETED" && !match.isDraw && match.winnerId !== null && match.winnerId !== selfId;
   const resultLabel = match.status !== "COMPLETED" ? "In progress" : match.isDraw ? "Draw" : youWon ? "Won" : "Lost";
   const resultColor = youWon ? "text-success" : youLost ? "text-danger" : "text-fg-muted";
 
   return (
-    <li className="flex items-center justify-between border-b border-border bg-surface px-4 py-3 text-sm last:border-b-0">
-      <span className="font-mono text-fg-muted">{new Date(match.startedAt).toLocaleDateString()}</span>
-      <span className={`font-medium ${resultColor}`}>{resultLabel}</span>
+    <li className="flex items-center justify-between gap-4 border-b border-border bg-surface px-4 py-3 text-sm last:border-b-0">
+      <div className="min-w-0">
+        <Link href={`/problems/${match.problemId}`} className="block truncate font-medium text-fg transition-colors hover:text-accent">
+          {problemTitle ?? `Problem ${match.problemId.slice(0, 8)}`}
+        </Link>
+        <p className="mt-1 truncate text-xs text-fg-muted">
+          vs {opponentName ?? `Player ${match.player1Id === selfId ? match.player2Id.slice(0, 8) : match.player1Id.slice(0, 8)}`} · {new Date(match.startedAt).toLocaleDateString()}
+        </p>
+      </div>
+      <div className="shrink-0 text-right">
+        <p className={`font-medium ${resultColor}`}>{resultLabel}</p>
+        {eloDelta !== undefined && match.status === "COMPLETED" && (
+          <p className={`mt-1 font-mono text-xs ${eloDelta >= 0 ? "text-success" : "text-danger"}`}>
+            {eloDelta >= 0 ? "+" : ""}{eloDelta} ELO
+          </p>
+        )}
+      </div>
     </li>
   );
 }

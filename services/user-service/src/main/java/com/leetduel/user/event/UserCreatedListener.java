@@ -16,19 +16,24 @@ public class UserCreatedListener {
     private final UserProfileRepository userProfileRepository;
 
     // RabbitMQ is at-least-once, so this may run more than once for the same
-    // userId (redelivery after a crash/ack timeout). existsById() covers the
-    // common case cheaply; the DB's PK constraint + this catch cover the rare
-    // race where two deliveries overlap - either way, a duplicate delivery
-    // never crashes the consumer or creates a second row.
+    // userId (redelivery after a crash/ack timeout). The existing profile is
+    // updated only when the additive username projection changes. The DB's PK
+    // constraint plus this catch cover the rare race where deliveries overlap.
     @RabbitListener(queues = "${leetduel.events.user-created-queue}")
     public void onUserCreated(UserCreatedEvent event) {
-        if (userProfileRepository.existsById(event.userId())) {
-            log.debug("Profile already exists for user {}, skipping (duplicate delivery)", event.userId());
+        UserProfile existing = userProfileRepository.findById(event.userId()).orElse(null);
+        if (existing != null) {
+            if (event.username() != null && !event.username().equals(existing.getUsername())) {
+                existing.setUsername(event.username());
+                userProfileRepository.save(existing);
+            }
+            log.debug("Profile already exists for user {}, treating delivery as idempotent", event.userId());
             return;
         }
 
         UserProfile profile = new UserProfile();
         profile.setUserId(event.userId());
+        profile.setUsername(event.username());
 
         try {
             userProfileRepository.save(profile);

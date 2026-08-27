@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowClockwise } from "@phosphor-icons/react";
-import { Logo } from "@/components/Logo";
+import { AppShell } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/Button";
 import {
   joinQueue,
@@ -121,28 +120,12 @@ export default function MatchmakingPage() {
   }
 
   return (
-    <main className="flex flex-1 flex-col">
-      <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-6 pt-8">
-        <Link href="/" aria-label="LeetDuel home">
-          <Logo />
-        </Link>
-        <div className="flex items-center gap-4 text-sm text-fg-muted">
-          <Link href="/leaderboard" className="hover:text-fg">
-            Leaderboard
-          </Link>
-          <Link href="/profile" className="hover:text-fg">
-            Profile
-          </Link>
-          <Link href="/problems" className="hover:text-fg">
-            Practice solo instead
-          </Link>
-        </div>
-      </div>
-
-      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center px-6 py-16 text-center">
-        <h1 className="text-2xl font-semibold text-fg">Ranked Duel</h1>
+    <AppShell>
+      <main className="flex flex-1 flex-col">
+        <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center px-6 py-16 text-center">
+        <h1 className="text-2xl font-semibold text-fg">Find a match</h1>
         <p className="mt-2 max-w-md text-sm text-fg-muted">
-          Get matched against an opponent close to your rating and race them to the correct solution.
+          We’ll match you with someone close to your rating for the same coding challenge.
         </p>
 
         {error && <p className="mt-6 text-sm text-danger">{error}</p>}
@@ -174,7 +157,7 @@ export default function MatchmakingPage() {
             <>
               <p className="text-sm font-medium text-success">Match found.</p>
               <Button variant="primary" href={`/duel/${matchId}`} className="w-full">
-                Enter duel
+                Enter match
               </Button>
             </>
           )}
@@ -189,6 +172,7 @@ export default function MatchmakingPage() {
           )}
         </div>
       </div>
-    </main>
+      </main>
+    </AppShell>
   );
 }

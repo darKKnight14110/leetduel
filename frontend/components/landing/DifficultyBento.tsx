@@ -6,13 +6,13 @@ const tiers = [
   {
     label: "Easy",
     title: "Warm up",
-    body: "Quick wins to get your fingers moving before a duel.",
+    body: "Quick wins to get your fingers moving before a match.",
     color: "var(--difficulty-easy)",
   },
   {
     label: "Medium",
     title: "The default",
-    body: "Most ranked duels land here. Fair fights, real pressure.",
+    body: "Most ranked matches land here. Fair competition, real pressure.",
     color: "var(--accent)",
   },
   {

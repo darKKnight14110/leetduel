@@ -9,7 +9,13 @@ export default function Home() {
   return (
     <>
       <Nav />
-      <main className="flex-1">
+      <a
+        href="#main-content"
+        className="sr-only z-50 rounded-md bg-accent px-4 py-2 font-medium text-accent-ink focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
+      >
+        Skip to content
+      </a>
+      <main id="main-content" className="flex-1">
         <Hero />
         <HowItWorks />
         <DifficultyBento />
