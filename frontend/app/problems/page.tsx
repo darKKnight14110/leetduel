@@ -40,6 +40,9 @@ export default function ProblemsPage() {
         <Link href="/" aria-label="LeetDuel home">
           <Logo />
         </Link>
+        <Link href="/matchmaking" className="text-sm text-fg-muted hover:text-fg">
+          Ranked duel
+        </Link>
       </div>
 
       <div className="mx-auto w-full max-w-3xl flex-1 px-6 py-10">

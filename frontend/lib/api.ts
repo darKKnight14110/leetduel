@@ -212,3 +212,51 @@ export function createSubmission(problemId: string, language: Language, sourceCo
 export function getSubmission(id: string): Promise<SubmissionResponse> {
   return authorizedFetch(`/submissions/${id}`);
 }
+
+// join() returns 202 Accepted with no body (see QueueController) -
+// authorizedFetch's res.json() would throw on an empty body, so this is a
+// separate helper for endpoints that only need pass/fail, not a payload.
+async function authorizedFetchVoid(path: string, options: RequestInit = {}): Promise<void> {
+  const token = getAccessToken();
+  if (!token) throw new UnauthorizedError("Not logged in");
+
+  const res = await fetch(`${GATEWAY_URL}${path}`, {
+    ...options,
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      Authorization: `Bearer ${token}`,
+      ...options.headers,
+    },
+  });
+
+  if (res.status === 401) {
+    clearAccessToken();
+    throw new UnauthorizedError("Session expired, please log in again");
+  }
+  if (!res.ok) {
+    const data: unknown = await res.json().catch(() => null);
+    throw new ApiError(extractMessage(data) ?? `Request failed (${res.status})`);
+  }
+}
+
+export type QueueState = "NEVER_JOINED" | "WAITING" | "MATCHED" | "EXPIRED";
+
+export type QueueStatusResponse = {
+  state: QueueState;
+  matchId: string | null;
+};
+
+export function joinQueue(): Promise<void> {
+  return authorizedFetchVoid("/matchmaking/queue/join", { method: "POST" });
+}
+
+export function getQueueStatus(): Promise<QueueStatusResponse> {
+  return authorizedFetch("/matchmaking/queue/status");
+}
+
+// 200 + body, not 204 - mirrors QueueController's own comment: a leave
+// request can race the pairing sweep and come back MATCHED instead of
+// cancelled, which the caller needs to be able to see.
+export function leaveQueue(): Promise<QueueStatusResponse> {
+  return authorizedFetch("/matchmaking/queue/leave", { method: "DELETE" });
+}
