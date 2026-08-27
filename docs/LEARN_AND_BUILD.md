@@ -87,7 +87,7 @@ Prerequisite reading: §1 (Spring Boot/microservices), §3 (auth), §7 (Docker/C
 
 Delivered:
 1. Repo structure: one folder per service (`auth-service`, `gateway`, `user-service`, ...), shared `docker-compose.infra.yml` at root.
-2. `docker-compose.infra.yml` bringing up Postgres, MongoDB, Redis, RabbitMQ as containers.
+2. `docker-compose.infra.yml` bringing up Postgres, Redis, and RabbitMQ as containers.
 3. Auth Service: signup/login/verification/password reset, refresh-token rotation, Google OAuth, JWT issuance, transactional outbox for `user.events`.
 4. API Gateway: Spring Cloud Gateway, JWT validation, routing, token-bucket rate limiting.
 5. User/Profile Service: profile CRUD.
@@ -99,7 +99,7 @@ Prerequisite reading: §4 (RabbitMQ), §8 (sandboxed execution)
 Delivered:
 1. Problem Service: CRUD problems + test cases (Postgres).
 2. Submission Service: accepts `{userId, problemId, code, language}`, stores metadata, publishes job to RabbitMQ `judge.jobs` queue.
-3. Judge Worker: consumes from `judge.jobs`, pulls a Docker image per language, runs submitted code against test cases with resource limits (CPU/mem/timeout, no network, non-root, ephemeral container per run), writes result (verdict + per-test-case output) to MongoDB, publishes verdict back.
+3. Judge Worker: consumes from `judge.jobs`, pulls a Docker image per language, runs submitted code against test cases with resource limits (CPU/mem/timeout, no network, non-root, ephemeral container per run), publishes the result (verdict + per-test-case output) back. Submission Service persists the result as JSONB in its own Postgres schema.
 4. Submission Service exposes verdict to the client.
 5. **Demo checkpoint (met):** submit a real solution to a real problem through the API, get back pass/fail per test case, end to end — no matchmaking or duel yet.
 
@@ -145,7 +145,7 @@ Prerequisite reading: §9 (K8s/Helm)
 Plan:
 1. Containerize every service (Dockerfile per service).
 2. Write k8s manifests or a Helm chart per service (Deployment, Service, ConfigMap/Secret for config).
-3. StatefulSets or Helm charts (e.g. Bitnami) for Postgres, MongoDB, Redis, RabbitMQ.
+3. StatefulSets or Helm charts (e.g. Bitnami) for Postgres, Redis, and RabbitMQ.
 4. HPA (Horizontal Pod Autoscaler) on at least the Judge Worker (the natural bursty-load service) and API Gateway.
 5. Deploy to local cluster (minikube or Docker Desktop's k8s), verify full flow works identically to docker-compose.
 6. **Demo checkpoint:** `kubectl get pods` shows everything healthy, full user flow (signup → practice submit → duel → leaderboard) works against the k8s-deployed stack.

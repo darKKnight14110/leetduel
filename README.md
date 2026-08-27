@@ -1,115 +1,222 @@
 # LeetDuel
 
-A LeetCode-style problem practice platform with real-time, ELO-ranked 1v1 coding duels — built as a microservices system to exercise the full breadth of a modern backend/systems design: async messaging, polyglot persistence, sandboxed untrusted-code execution, real-time push, and Kubernetes deployment with metrics.
+LeetDuel is a distributed coding platform where developers practice problems and compete in real-time, ELO-ranked 1v1 duels.
 
-## Executive summary
+It is built as a backend-heavy systems project rather than a CRUD application with a queue attached. The implementation focuses on service boundaries, asynchronous workflows, safe execution of untrusted code, Redis-backed coordination, real-time fanout, and failure-aware data consistency.
 
-LeetDuel is a from-scratch distributed system, not a CRUD app with a queue bolted on. Each service owns one responsibility and one data store; services talk to each other over RabbitMQ (task queues + topic-exchange fanout) and Redis (hot state, rate limiting), never by reaching into another service's database. The judge itself runs untrusted user code inside locked-down, ephemeral Docker containers — no network, non-root, read-only root filesystem, resource-limited — the same class of problem Judge0 and competitive-programming judges solve in production.
+## Resume summary
 
-## What it does
+- Designed and implemented a Java 21 / Spring Boot microservices platform with ten independently deployable backend services and a Next.js frontend.
+- Built an asynchronous judge pipeline with RabbitMQ and ephemeral Docker sandboxes for Python and Java submissions, including CPU, memory, timeout, network, non-root, and read-only filesystem controls.
+- Implemented horizontally safe ELO matchmaking with Redis sorted sets and atomic Lua scripts, plus optimistic-lock-guarded duel completion and transactional outbox publishing.
+- Implemented STOMP real-time duel updates through a standalone WebSocket gateway using RabbitMQ to Redis Pub/Sub to local broker fanout.
+- Added a Redis materialized leaderboard with global, weekly, and seasonal rankings, atomic period-score idempotency, rank lookup, and surrounding-player queries.
 
-- **Auth:** email/password signup with verification, login, refresh-token rotation, password reset, Google OAuth — all JWT-based, validated at the API Gateway before any request reaches a backend service.
-- **Practice mode:** browse problems by tag/difficulty, write a solution in Python or Java, submit it, get back a per-test-case verdict from a sandboxed judge worker.
-- **Ranked duels:** join a queue, get ELO-matched against an opponent within an expanding rating window, race to solve the same problem live, opponent's progress bar updates over WebSocket, ELO adjusts on completion.
+## Product flow
 
-## System design
+1. A user signs up or logs in and receives a short-lived JWT plus a rotating refresh token.
+2. The user browses a problem and submits Python or Java code.
+3. Submission Service publishes a judge job. Judge Worker runs the code in an ephemeral sandbox and publishes the verdict asynchronously.
+4. For ranked play, two users join the matchmaking queue. Matchmaking pairs them by ELO using an expanding search window.
+5. Duel Service owns the match lifecycle. Each accepted submission updates progress, and the first player to solve all tests wins.
+6. `match.completed` is published once through the duel outbox. User Service applies ELO and W/L/D stats, while Leaderboard Service updates its Redis read model.
+7. The frontend receives live opponent progress and the final result over WebSocket.
+
+## Architecture
 
 ```mermaid
 flowchart TB
-    FE["Frontend<br/>Next.js / React SPA"]
+    FE["Next.js / React frontend"]
 
-    FE -->|"HTTPS + JWT"| GW["API Gateway<br/>hand-rolled reactive proxy (WebFlux)"]
-    FE -.->|"STOMP over WebSocket<br/>JWT on CONNECT frame"| WSG
+    FE -->|"HTTP + JWT"| GW["API Gateway<br/>WebFlux proxy"]
+    FE -.->|"STOMP over WebSocket<br/>JWT on CONNECT"| WSG["WS Gateway"]
 
-    GW -->|"JWT verify"| AUTH["Auth Service"]
+    GW --> AUTH["Auth Service"]
     GW --> USER["User / Profile Service"]
     GW --> PROB["Problem Service"]
     GW --> SUB["Submission Service"]
     GW --> MATCH["Matchmaking Service"]
     GW --> DUEL["Duel Service"]
-    GW -.->|"token-bucket check<br/>(Lua EVAL, atomic)"| REDIS[("Redis")]
+    GW --> LEAD["Leaderboard Service"]
 
-    AUTH -->|"transactional outbox"| MQ[("RabbitMQ")]
-    SUB -->|"publish judge job"| MQ
-    MQ -->|"consume"| JUDGE["Judge Worker Pool"]
+    AUTH -->|"transactional outbox"| MQ[(RabbitMQ)]
+    SUB -->|"judge job"| MQ
+    MQ --> JUDGE["Judge Worker pool"]
+    JUDGE --> SANDBOX[["Ephemeral Docker sandbox<br/>Python 3.12 / Java 21"]]
+    JUDGE -->|"submission.judged"| MQ
 
-    JUDGE -->|"spawn per-submission<br/>sibling container"| SANDBOX[["Docker sandbox<br/>Python 3.12 / Java 21<br/>no network, non-root, RO rootfs"]]
-    JUDGE --> MONGO[("MongoDB<br/>per-test-case results")]
-    JUDGE -->|"submission.judged<br/>(matchId, userId)"| MQ
+    MATCH -->|"atomic ELO pairing"| REDIS[(Redis)]
+    MATCH -->|"match.created"| MQ
+    MQ --> DUEL
+    DUEL -->|"duel.progress / match.completed"| MQ
+    MQ --> WSG
+    MQ --> USER
+    MQ --> LEAD
+    WSG -.->|"cross-instance Pub/Sub"| REDIS
 
-    MATCH -->|"expanding-window ELO pairing<br/>atomic Lua script"| REDIS
-    MATCH -->|"match.created<br/>(transactional outbox)"| MQ
-    MQ -->|"consume"| DUEL
-    DUEL -->|"duel.progress / match.completed<br/>(transactional outbox)"| MQ
-    MQ -->|"consume"| WSG["WS Gateway<br/>(standalone, direct-connect)"]
-    MQ -->|"consume match.completed<br/>(sole ELO writer)"| USER
-    WSG -.->|"Pub/Sub relay<br/>(cross-instance fanout)"| REDIS
-
-    AUTH --> PG[("PostgreSQL")]
+    AUTH --> PG[(PostgreSQL)]
     USER --> PG
     PROB --> PG
-    SUB --> PG
-    MATCH --> PG
+    SUB -->|"metadata + JSONB results"| PG
     DUEL --> PG
-
-    subgraph planned [" Phase 4+ "]
-        LEAD["Leaderboard Service"]
-    end
-    MQ -.-> LEAD
 ```
 
-Full design rationale — service boundaries, delivery guarantees, ELO/matchmaking algorithm, data-store choices — is written up in [`docs/goals.md`](docs/goals.md).
+## Services
+
+| Service | Responsibility | Primary technology / state |
+|---|---|---|
+| API Gateway | JWT validation, routing, CORS, token-bucket rate limiting | Spring WebFlux, Redis Lua |
+| Auth Service | Signup, verification, login, refresh rotation, password reset, Google OAuth | Spring Security, JWT, PostgreSQL |
+| User/Profile Service | ELO, duel stats, rating history, public profile reads | Spring Data JPA, PostgreSQL |
+| Problem Service | Problems, tags, difficulty, test cases, language stubs | Spring Data JPA, PostgreSQL |
+| Submission Service | Submission metadata, judge-job publication, verdict reads | Spring Data JPA, PostgreSQL JSONB |
+| Judge Worker | Sandboxed Python/Java execution and verdict publication | Spring AMQP, Docker Engine |
+| Matchmaking Service | ELO queueing, expanding-window pairing, expiry | Redis sorted sets, Lua, RabbitMQ |
+| Duel Service | Match state, progress, timeout/winner resolution, ELO calculation | PostgreSQL, optimistic locking |
+| WS Gateway | Authenticated STOMP connections and horizontally scalable event fanout | WebSocket, RabbitMQ, Redis Pub/Sub |
+| Leaderboard Service | Global, weekly, seasonal ranked read model | Redis sorted sets, Lua, RabbitMQ |
+
+## Design decisions worth discussing
+
+### PostgreSQL instead of MongoDB for judge results
+
+MongoDB was initially considered for variable-shaped per-test-case output, but it was removed from the implemented architecture. Submission results are now stored as JSONB in Submission Service's PostgreSQL-owned schema.
+
+This keeps the local stack smaller and preserves the relational benefits needed for ownership, submission history, and transactional metadata. JSONB still handles variable-length test-result payloads without introducing a second durable database. The judge worker remains stateless: it executes code and publishes events; Submission Service owns the persisted result.
+
+### RabbitMQ for asynchronous work and events
+
+RabbitMQ provides durable task queues for judge jobs and matchmaking requests, and a durable topic exchange for `match.created`, `duel.progress`, and `match.completed` fanout. Each consumer has its own queue, so a slow or unavailable consumer does not prevent other consumers from receiving the event.
+
+Consumers assume at-least-once delivery. User Service deduplicates completed matches in PostgreSQL. Leaderboard Service uses `ZADD` for absolute global ELO and an atomic Lua check-then-increment script for additive weekly and seasonal scores.
+
+Kafka and event replay are intentionally deferred. At this project's scale, RabbitMQ provides the required queue and fanout semantics with less operational overhead.
+
+### Redis for coordination and read models
+
+Redis stores hot or derived state: matchmaking indexes, rate-limit buckets, WebSocket Pub/Sub relay state, and leaderboard sorted sets. Durable source-of-truth records remain in service-owned PostgreSQL schemas.
+
+Lua scripts close check-then-act races for token buckets and matchmaking. Leaderboard period keys include the ISO week or calendar quarter, so period rollover starts writing to a new key without a reset job.
+
+### Transactional outbox
+
+Database changes that produce RabbitMQ events write an outbox row in the same transaction as the business record. A poller publishes pending rows and marks them sent. If a service crashes after the database commit, the event remains available for the next relay attempt.
+
+The trade-off is polling latency and repeated indexed queries. CDC/Debezium would reduce that latency but would add infrastructure that is not justified for this project.
+
+### Real-time duel fanout
+
+The API Gateway is an HTTP-only hand-rolled WebFlux proxy, so WebSocket connections go directly to WS Gateway. WS Gateway authenticates the JWT on the STOMP `CONNECT` frame, consumes duel events from RabbitMQ, republishes them through Redis Pub/Sub, and forwards them through each instance's local STOMP broker.
+
+This lets two players connected to different WS Gateway instances receive the same match updates. The REST match read remains the source of truth for initial state and reconnect recovery; WebSocket carries live deltas.
+
+## Security and reliability
+
+- JWT verification occurs at the API Gateway for HTTP and on the STOMP `CONNECT` frame for WebSocket.
+- The Gateway strips caller-supplied identity headers before adding verified `X-User-Id` headers.
+- Judge containers run with no network, a read-only root filesystem, non-root execution, resource limits, and forced cleanup.
+- Duel completion uses JPA optimistic locking so simultaneous submissions or timeout races cannot publish two winners.
+- RabbitMQ queues and the transactional outbox tolerate service restarts; idempotent consumers tolerate redelivery.
+- MongoDB is not required anywhere in the current build.
 
 ## Tech stack
 
-| Layer | Choice |
+| Layer | Technologies |
 |---|---|
-| Backend services | Java 21, Spring Boot 4.1 (WebMVC + WebFlux for the reactive Gateway), Spring Security, Spring Data JPA, Flyway |
-| API Gateway | Hand-rolled reactive HTTP proxy (Spring WebFlux, not Spring Cloud Gateway) — JWT validation, routing, Redis-backed token-bucket rate limiting. No WebSocket-upgrade support (see WS Gateway below). |
-| Auth | JWT (JJWT/HS256), refresh-token rotation, Google OAuth2, transactional outbox for event publishing |
-| Real-time duel | STOMP over WebSocket via a standalone WS Gateway service — JWT verified on the STOMP CONNECT frame, RabbitMQ → Redis Pub/Sub → local Spring `SimpleBroker` relay for horizontal scaling |
-| Async messaging | RabbitMQ — task queues (judge jobs, matchmaking join requests) + topic exchange (event fanout: `match.created`/`duel.progress`/`match.completed`) |
-| Data stores | PostgreSQL (relational core: users, problems, submissions/match metadata), MongoDB (variable-shape per-test-case judge output), Redis (rate limiting, ELO matching index, WS Pub/Sub fanout; leaderboard once built) |
-| Code execution | Docker (`docker-java` client) — ephemeral, resource-limited sandbox containers per submission |
-| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4, `@stomp/stompjs` |
-|Planned  | Kubernetes + Helm, Prometheus + Grafana (Actuator/Micrometer already wired per-service), Leaderboard Service |
+| Backend | Java 21, Spring Boot 4.1, Spring MVC/WebFlux, Spring Security |
+| Persistence | PostgreSQL, Spring Data JPA, Flyway, JSONB |
+| Messaging | RabbitMQ, transactional outbox, Jackson message conversion |
+| Hot state | Redis, sorted sets, Pub/Sub, atomic Lua scripts |
+| Code execution | Docker Engine, docker-java, Python 3.12, Java 21 |
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4, STOMP.js |
+| Planned next | Kubernetes/Helm deployment and Prometheus/Grafana dashboards |
 
-## How to run
+## Run locally
 
-**Prerequisites:** Docker Desktop, JDK 21, Node.js 20+.
+### Prerequisites
 
-1. **Start local infra** (Postgres, MongoDB, Redis, RabbitMQ, admin UIs, and the three containerized app services — Judge Worker, Duel Service, WS Gateway):
-   ```bash
-   docker compose -f docker-compose.infra.yml up -d
-   ```
+- Docker Desktop
+- JDK 21
+- Node.js 20+
+- PowerShell for the sandbox image helper
 
-2. **Build the judge's sandbox images** (one-time, or after changing `docker/sandbox-*`):
-   ```powershell
-   ./scripts/build-sandbox-images.ps1
-   ```
+### 1. Start infrastructure and containerized services
 
-3. **Run each remaining Spring Boot service** (each is an independent Gradle project; Judge Worker, Duel Service, and WS Gateway already run via docker-compose above):
-   ```bash
-   cd services/auth-service && ./gradlew bootRun          # :8082
-   cd services/user-service && ./gradlew bootRun          # :8083
-   cd services/gateway && ./gradlew bootRun               # :8084
-   cd services/problem-service && ./gradlew bootRun       # :8085
-   cd services/submission-service && ./gradlew bootRun    # :8086
-   cd services/matchmaking-service && ./gradlew bootRun   # :8088
-   ```
-   `auth-service` needs `GMAIL_USERNAME`/`GMAIL_APP_PASSWORD` env vars for verification emails (a Gmail app password, not the account password) and optionally `JWT_SECRET` (falls back to a dev-only default otherwise, shared by `gateway` and `ws-gateway` too).
+```bash
+docker compose -f docker-compose.infra.yml up -d
+```
 
-4. **Run the frontend:**
-   ```bash
-   cd frontend && npm install && npm run dev
-   ```
-   Open `http://localhost:3000`. `frontend/.env.local` points `NEXT_PUBLIC_AUTH_API_URL` at `auth-service` (`:8082`), `NEXT_PUBLIC_GATEWAY_API_URL` at the Gateway (`:8084`), and `NEXT_PUBLIC_WS_GATEWAY_URL` at WS Gateway (`:8090`).
+This starts PostgreSQL, Redis, RabbitMQ, pgAdmin, RedisInsight, RabbitMQ management, Judge Worker, Duel Service, WS Gateway, and Leaderboard Service. MongoDB is not part of the stack.
 
-**Admin UIs** (brought up by step 1, throwaway local-dev credentials `leetduel` / `leetduel_dev`):
+### 2. Build sandbox images
 
-| UI | URL |
+```powershell
+./scripts/build-sandbox-images.ps1
+```
+
+### 3. Run local Spring services
+
+Each service is an independent Gradle project:
+
+```bash
+cd services/auth-service && ./gradlew bootRun          # :8082
+cd services/user-service && ./gradlew bootRun          # :8083
+cd services/gateway && ./gradlew bootRun               # :8084
+cd services/problem-service && ./gradlew bootRun       # :8085
+cd services/submission-service && ./gradlew bootRun    # :8086
+cd services/matchmaking-service && ./gradlew bootRun   # :8088
+```
+
+Auth email verification requires `GMAIL_USERNAME` and `GMAIL_APP_PASSWORD`. Set `JWT_SECRET` to a strong shared secret for non-development environments.
+
+### 4. Run the frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000). The frontend uses Auth Service on `:8082`, API Gateway on `:8084`, and WS Gateway on `:8090` by default.
+
+## Useful local URLs
+
+| Component | URL |
 |---|---|
+| Frontend | http://localhost:3000 |
 | RabbitMQ management | http://localhost:15672 |
 | pgAdmin | http://localhost:5050 |
-| Mongo Express | http://localhost:8081 |
 | RedisInsight | http://localhost:5540 |
+
+Local admin credentials are `leetduel` / `leetduel_dev` where applicable. They are development-only credentials.
+
+## Verification
+
+Frontend checks:
+
+```bash
+cd frontend
+npm run lint
+npx tsc --noEmit
+npm run build
+```
+
+Backend checks can be run per service:
+
+```bash
+cd services/<service-name>
+./gradlew test
+```
+
+The most valuable integration checks use Testcontainers for Redis Lua-script concurrency and idempotency behavior.
+
+## Project status
+
+- Phase 0: foundations, authentication, Gateway, and User Service complete.
+- Phase 1: asynchronous sandboxed judge loop complete.
+- Phase 2: Redis-backed ELO matchmaking complete.
+- Phase 3: real-time duel lifecycle and WebSocket fanout complete.
+- Phase 4: leaderboard, profile stats, ELO history, and match history complete.
+- Next: Kubernetes deployment, then Prometheus/Grafana observability.
+
+For the deeper design rationale and learning path, see [`docs/goals.md`](docs/goals.md) and [`docs/LEARN_AND_BUILD.md`](docs/LEARN_AND_BUILD.md).

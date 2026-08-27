@@ -21,7 +21,7 @@ Full platform, built in phases. Each phase independently demoable and resume-wor
 | User/Profile Service | profile, ELO + external ratings + duel stats; consumes `match.completed` to apply ELO delta and update W/L/D counters (sole writer of ELO) | Postgres |
 | Problem Service | problem CRUD, test cases, tags/difficulty | Postgres |
 | Submission Service | accepts code, publishes judge job | Postgres (metadata) |
-| Judge Worker (pool) | consumes RabbitMQ job, spins Docker sandbox, runs code vs test cases, scores, emits result | MongoDB (per-test-case output/logs, code snapshot) |
+| Judge Worker (pool) | consumes RabbitMQ job, spins Docker sandbox, runs code vs test cases, scores, emits result | Stateless; result is persisted by Submission Service |
 | Matchmaking Service | RabbitMQ join queue in, Redis sorted-set expanding-window ELO pairing | Redis (matching index) |
 | Duel Service | owns live match lifecycle, both players' progress, decides winner, computes ELO delta (has both ratings from match creation, no cross-service lookup needed) | Postgres (match record) |
 | WS Gateway Service | holds client WebSocket connections, fanout via Redis pub/sub, routes opponent progress via a topic-per-match STOMP subscription | Redis (pub/sub relay channel) |
@@ -40,7 +40,7 @@ Gateway, Auth, User/Profile, Problem, Submission, Judge Worker, Matchmaking, Due
 
 Polyglot, database-per-service where it matters:
 - **Postgres** — core relational/transactional entities: users, problems + test cases, matches, ELO history. ACID needed.
-- **MongoDB** — high-write, variable-shape submission execution results (code snapshot, per-test-case output/logs).
+- **Postgres JSONB** — variable-shape submission execution results (per-test-case output/logs) stored with Submission Service's relational submission record. MongoDB was evaluated and dropped to avoid a second durable database for data that already has a stable relational owner.
 - **Redis** — ephemeral/hot state only (matching queue, leaderboard, WS sessions, cache, rate-limit buckets). Not source of truth for anything durable.
 
 ## Code execution / judging (implemented)
@@ -89,11 +89,11 @@ Prometheus + Grafana only for v1 (Spring Boot Actuator + Micrometer exposing `/a
 
 ## Frontend
 
-Full React + TypeScript SPA: Monaco code editor, problem browser, matchmaking/queue screen, live duel view (WS-driven opponent progress bar), leaderboard, profile/stats/rating history. Landing page, login/signup (wired to Auth Service), the problem browser, the matchmaking/queue screen, and the live duel view (`/duel/[matchId]`, `@stomp/stompjs` over native WebSocket) are implemented; leaderboard and profile/stats views are planned alongside Phase 4. Code editor is still a plain textarea, not Monaco — a named scope trade-off, not a silent one (see the Phase 5 plan).
+Full React + TypeScript SPA: Monaco code editor, problem browser, matchmaking/queue screen, live duel view (WS-driven opponent progress bar), leaderboard, profile/stats/rating history. Landing page, login/signup (wired to Auth Service), problem browser, matchmaking/queue screen, live duel view (`/duel/[matchId]`, `@stomp/stompjs` over native WebSocket), leaderboard, and profile/stats views are implemented. Code editor is still a plain textarea, not Monaco — a named scope trade-off, not a silent one (see the Phase 5 plan).
 
 ## Open questions / deferred decisions
 
-- Exact data model / schema for the not-yet-built Leaderboard Service
+- Historical leaderboard rebuild/replay strategy if Redis state is lost (the current leaderboard is a derived materialized view)
 - Judge sandbox anti-cheat considerations (plagiarism detection is explicitly out of v1 scope unless revisited)
 - Testing strategy per service (unit/integration/e2e, contract tests between services)
 - CI/CD pipeline
@@ -102,7 +102,7 @@ These get resolved incrementally as each phase is implemented, not up front. (Ma
 
 ## Implementation phases
 
-0. **Foundations — done.** Repo structure, `docker-compose.infra.yml` (Postgres, Mongo, Redis, RabbitMQ), Auth Service, API Gateway, User Service — login working end-to-end.
+0. **Foundations — done.** Repo structure, `docker-compose.infra.yml` (Postgres, Redis, RabbitMQ), Auth Service, API Gateway, User Service — login working end-to-end.
 1. **Core judge loop — done.** Problem Service, Submission Service, Judge Worker (Docker sandbox), RabbitMQ job queue — single-player practice mode fully working.
 2. **ELO + Matchmaking — done.** Matchmaking Service, Redis expanding-window pairing via an atomic Lua script, transactional-outbox `match.created` publish.
 3. **Real-time duel — done.** Duel Service (match lifecycle, optimistic-lock-guarded win/timeout logic, ELO calculator, transactional-outbox `duel.progress`/`match.completed` publish), WS Gateway (STOMP over WebSocket, JWT-on-CONNECT auth, RabbitMQ → Redis Pub/Sub → local `SimpleBroker` fanout), `matchId`/`userId` threaded through Submission Service and Judge Worker, User Service's `match.completed` consumer (sole ELO writer, idempotency-guarded), live duel frontend page.
