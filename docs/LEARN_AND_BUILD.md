@@ -126,19 +126,18 @@ Delivered:
 6. Frontend: `/duel/[matchId]` page (`@stomp/stompjs` over native WebSocket, no SockJS fallback), initial state fetched via Duel Service's `GET /duels/{matchId}` (routed through the API Gateway) with WS carrying only live deltas after that. Matchmaking page's `MATCHED` state now routes here instead of the old placeholder.
 7. **Demo checkpoint:** two browser tabs, join queue, get matched, both see a live duel screen, opponent's progress bar updates in real time, winner declared, ELO updates. Verified up through build/lint/typecheck for all five backend services and the frontend; not yet run live end-to-end in two browser tabs.
 
-### Phase 4 — Leaderboard + profile/stats
+### Phase 4 — Leaderboard + profile/stats (done)
 Plan:
-1. Leaderboard Service consumes `match.completed` off the topic exchange, updates a Redis sorted set (`ZADD leaderboard <newElo> <userId>`).
-2. Leaderboard API: top N, plus a given user's rank (`ZRANK`).
-3. Profile Service: rating history, match history view (reads from Postgres match records).
-4. **Demo checkpoint:** after a duel, both players' new ELO shows up correctly ranked on the leaderboard.
+1. Leaderboard Service consumes `match.completed` off the topic exchange, updating Redis sorted-set projections for global ELO, current ISO-week delta, and current calendar-quarter delta. Period updates use an atomic Lua check-then-increment script because RabbitMQ delivery is at-least-once.
+2. Leaderboard API exposes public top-N, rank lookup, and rank-relative surrounding-player queries through the Gateway.
+3. User Service stores transactional append-only ELO history; Duel Service exposes paginated match history. The frontend composes these independent reads on the authenticated profile page.
+4. **Demo checkpoint:** after a duel, both players' new ELO shows up correctly ranked on the leaderboard, and the profile shows updated stats, rating history, and match history.
 
 ### Phase 5 — Frontend React SPA
 Prerequisite reading: §11 (React/TS/Monaco). Built incrementally alongside Phases 0-4's API surface rather than as one final phase.
 
-Status: landing page, login/signup (wired to Auth Service), problem browser, matchmaking queue screen, and the live duel view (`/duel/[matchId]`, opponent progress bar driven by the WS connection) are implemented. Remaining:
-1. Leaderboard page, profile/stats page with rating history chart.
-2. Monaco code editor (currently a plain textarea — a named scope trade-off, not a silent one).
+Status: landing page, login/signup (wired to Auth Service), problem browser, matchmaking queue screen, live duel view (`/duel/[matchId]`, opponent progress bar driven by the WS connection), leaderboard page, and profile/stats page with rating history chart are implemented. Remaining:
+1. Monaco code editor (currently a plain textarea — a named scope trade-off, not a silent one).
 
 ### Phase 6 — Kubernetes deployment
 Prerequisite reading: §9 (K8s/Helm)

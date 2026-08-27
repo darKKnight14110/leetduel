@@ -42,10 +42,6 @@ export default function LeaderboardPage() {
   });
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-    setSelfRank(null);
-
     getLeaderboardTop(board, 50)
       .then((res) => {
         setEntries(res.entries);
@@ -64,6 +60,13 @@ export default function LeaderboardPage() {
       })
       .finally(() => setLoading(false));
   }, [board, selfId]);
+
+  function handleBoardChange(nextBoard: Board) {
+    setLoading(true);
+    setError(null);
+    setSelfRank(null);
+    setBoard(nextBoard);
+  }
 
   return (
     <main className="flex flex-1 flex-col">
@@ -84,7 +87,7 @@ export default function LeaderboardPage() {
             <button
               key={tab.value}
               type="button"
-              onClick={() => setBoard(tab.value)}
+              onClick={() => handleBoardChange(tab.value)}
               className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
                 board === tab.value ? "bg-accent text-accent-ink" : "text-fg-muted hover:text-fg"
               }`}

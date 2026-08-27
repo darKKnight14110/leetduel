@@ -2,7 +2,7 @@
 
 Target: backend-heavy systems project demonstrating full system-design-primer coverage for top systems/backend engineering roles.
 
-Status: Phase 0 (foundations), Phase 1 (core judge loop), Phase 2 (ELO + matchmaking), and Phase 3 (real-time duel) are implemented. Phase 4 (leaderboard + profile/stats) is next. See "Implementation phases" below for the full breakdown.
+Status: Phase 0 (foundations), Phase 1 (core judge loop), Phase 2 (ELO + matchmaking), Phase 3 (real-time duel), and Phase 4 (leaderboard + profile/stats) are implemented. See "Implementation phases" below for the full breakdown.
 
 ## Pitch
 
@@ -27,7 +27,7 @@ Full platform, built in phases. Each phase independently demoable and resume-wor
 | WS Gateway Service | holds client WebSocket connections, fanout via Redis pub/sub, routes opponent progress via a topic-per-match STOMP subscription | Redis (pub/sub relay channel) |
 | Leaderboard Service | consumes match-completed events off RabbitMQ, maintains ranked leaderboard | Redis (sorted set) |
 
-Gateway, Auth, User/Profile, Problem, Submission, Judge Worker, Matchmaking, Duel Service, and WS Gateway are implemented (Phases 0-3). Leaderboard is designed but not yet built (Phase 4+).
+Gateway, Auth, User/Profile, Problem, Submission, Judge Worker, Matchmaking, Duel Service, WS Gateway, and Leaderboard are implemented (Phases 0-4).
 
 ## Async backbone (Kafka dropped as overkill for this project's actual scale)
 
@@ -69,7 +69,7 @@ Expanding-window ELO matching (like chess.com/League):
 3. Judge Worker scores → result to RabbitMQ (`submission.judged`, now carrying `matchId` and `userId`) → Duel Service updates that player's progress % in its own match record (`max(existing, new)` — a worse resubmission never regresses the opponent-visible bar) → republishes `duel.progress` via its transactional outbox onto the `match.events` topic exchange.
 4. WS Gateway relays `duel.progress` to `/topic/duel/{matchId}` — see "Real-time transport" above for the Redis Pub/Sub relay mechanics. Payload is **progress % only** (no code, no submission counts — preserves competitive integrity, keeps the payload simple).
 5. **Win condition:** first to pass 100% test cases wins immediately, match closes to further scoring. If time limit expires with no 100% (`MatchTimeoutSweeper`, ~1s cadence, mirrors Matchmaking Service's own sweep pattern), higher progress % wins; exact tie = draw. The `IN_PROGRESS → COMPLETED` transition is guarded by JPA optimistic locking (`@Version`) so a near-simultaneous double-completion (both players hit 100% at once, or the timeout sweep fires as the last submission lands) can't double-apply — the losing writer gets `ObjectOptimisticLockingFailureException`, caught and treated as a no-op.
-6. On completion: Duel Service computes ELO delta (standard ELO formula, K-factor 32) using each player's rating captured at match creation, updates its own match record, publishes `match.completed` (winner/loser/draw, both ELO deltas, both players' ELO-at-match-time) via the same outbox → User/Profile Service applies the delta and duel counters to its own row (sole writer of ELO — Duel Service never writes into Profile's table) → Leaderboard Service (Phase 4+) will update its Redis sorted set → WS Gateway pushes the final result to both clients over the same topic subscription.
+6. On completion: Duel Service computes ELO delta (standard ELO formula, K-factor 32) using each player's rating captured at match creation, updates its own match record, publishes `match.completed` (winner/loser/draw, both ELO deltas, both players' ELO-at-match-time) via the same outbox → User/Profile Service applies the delta and duel counters to its own row (sole writer of ELO — Duel Service never writes into Profile's table) → Leaderboard Service updates global, current ISO-week, and current calendar-quarter Redis sorted sets → WS Gateway pushes the final result to both clients over the same topic subscription.
    - Opponent's ELO-at-match-time (not their live post-match ELO) is what Profile Service sums into `sum_opp_elo_won/lost/drawn` — using live ELO would make the aggregate depend on when it's read, not what actually happened in that match.
    - Applying an ELO delta is not naturally idempotent (unlike, say, the outbox's `published_at IS NULL` check), so User Service guards against RabbitMQ's at-least-once redelivery with an explicit `profile.processed_match_completions(match_id)` dedup table, checked and written in the same transaction as the delta application.
 
@@ -106,7 +106,7 @@ These get resolved incrementally as each phase is implemented, not up front. (Ma
 1. **Core judge loop — done.** Problem Service, Submission Service, Judge Worker (Docker sandbox), RabbitMQ job queue — single-player practice mode fully working.
 2. **ELO + Matchmaking — done.** Matchmaking Service, Redis expanding-window pairing via an atomic Lua script, transactional-outbox `match.created` publish.
 3. **Real-time duel — done.** Duel Service (match lifecycle, optimistic-lock-guarded win/timeout logic, ELO calculator, transactional-outbox `duel.progress`/`match.completed` publish), WS Gateway (STOMP over WebSocket, JWT-on-CONNECT auth, RabbitMQ → Redis Pub/Sub → local `SimpleBroker` fanout), `matchId`/`userId` threaded through Submission Service and Judge Worker, User Service's `match.completed` consumer (sole ELO writer, idempotency-guarded), live duel frontend page.
-4. **Leaderboard + profile/stats — next.**
+4. **Leaderboard + profile/stats — done.** Leaderboard Service consumes `match.completed` into Redis global/weekly/season sorted-set projections with Lua-backed idempotency for additive period scores; User Service stores transactional ELO history; Duel Service exposes paginated match history; frontend exposes public `/leaderboard` and authenticated `/profile` views.
 5. Frontend React SPA (built incrementally alongside each phase's API surface rather than as one final phase).
 6. Kubernetes deployment: Helm charts, HPA, migrate from docker-compose to k8s.
 7. Observability: Prometheus + Grafana dashboards (service health, queue depth, judge latency, match wait time, per-service request rate/latency/error rate).
