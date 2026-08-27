@@ -39,7 +39,7 @@ class PairingLuaScriptIT {
 
     private static GenericContainer<?> redis;
     private static StringRedisTemplate redisTemplate;
-    private static RedisScript<List> pairMatchScript;
+    private static RedisScript<List<Object>> pairMatchScript;
 
     @BeforeAll
     static void startRedis() {
@@ -55,7 +55,12 @@ class PairingLuaScriptIT {
         redisTemplate.setConnectionFactory(connectionFactory);
         redisTemplate.afterPropertiesSet();
 
-        pairMatchScript = RedisScript.of(new ClassPathResource("scripts/pair_match.lua"), List.class);
+        // Same erasure-forced raw-type-then-cast shape as RedisConfig's
+        // production beans - see that class's comment.
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        RedisScript<List<Object>> script = (RedisScript)
+                RedisScript.of(new ClassPathResource("scripts/pair_match.lua"), List.class);
+        pairMatchScript = script;
     }
 
     @AfterAll

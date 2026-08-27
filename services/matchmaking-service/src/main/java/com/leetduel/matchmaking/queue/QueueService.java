@@ -27,7 +27,7 @@ public class QueueService {
     private final UserServiceClient userServiceClient;
     private final RabbitTemplate rabbitTemplate;
     private final StringRedisTemplate redisTemplate;
-    private final RedisScript<List> leaveQueueScript;
+    private final RedisScript<List<Object>> leaveQueueScript;
 
     @Value("${leetduel.events.matchmaking-jobs-exchange}")
     private String joinExchange;

@@ -34,8 +34,8 @@ import java.util.UUID;
 public class MatchmakingSweepScheduler {
 
     private final StringRedisTemplate redisTemplate;
-    private final RedisScript<List> pairMatchScript;
-    private final RedisScript<List> expireJoinScript;
+    private final RedisScript<List<Object>> pairMatchScript;
+    private final RedisScript<List<Object>> expireJoinScript;
     private final ProblemServiceClient problemServiceClient;
     private final MatchWriter matchWriter;
 

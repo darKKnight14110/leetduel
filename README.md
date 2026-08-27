@@ -18,12 +18,15 @@ LeetDuel is a from-scratch distributed system, not a CRUD app with a queue bolte
 flowchart TB
     FE["Frontend<br/>Next.js / React SPA"]
 
-    FE -->|"HTTPS + JWT"| GW["API Gateway<br/>Spring Cloud Gateway"]
+    FE -->|"HTTPS + JWT"| GW["API Gateway<br/>hand-rolled reactive proxy (WebFlux)"]
+    FE -.->|"STOMP over WebSocket<br/>JWT on CONNECT frame"| WSG
 
     GW -->|"JWT verify"| AUTH["Auth Service"]
     GW --> USER["User / Profile Service"]
     GW --> PROB["Problem Service"]
     GW --> SUB["Submission Service"]
+    GW --> MATCH["Matchmaking Service"]
+    GW --> DUEL["Duel Service"]
     GW -.->|"token-bucket check<br/>(Lua EVAL, atomic)"| REDIS[("Redis")]
 
     AUTH -->|"transactional outbox"| MQ[("RabbitMQ")]
@@ -32,19 +35,27 @@ flowchart TB
 
     JUDGE -->|"spawn per-submission<br/>sibling container"| SANDBOX[["Docker sandbox<br/>Python 3.12 / Java 21<br/>no network, non-root, RO rootfs"]]
     JUDGE --> MONGO[("MongoDB<br/>per-test-case results")]
+    JUDGE -->|"submission.judged<br/>(matchId, userId)"| MQ
+
+    MATCH -->|"expanding-window ELO pairing<br/>atomic Lua script"| REDIS
+    MATCH -->|"match.created<br/>(transactional outbox)"| MQ
+    MQ -->|"consume"| DUEL
+    DUEL -->|"duel.progress / match.completed<br/>(transactional outbox)"| MQ
+    MQ -->|"consume"| WSG["WS Gateway<br/>(standalone, direct-connect)"]
+    MQ -->|"consume match.completed<br/>(sole ELO writer)"| USER
+    WSG -.->|"Pub/Sub relay<br/>(cross-instance fanout)"| REDIS
 
     AUTH --> PG[("PostgreSQL")]
     USER --> PG
     PROB --> PG
     SUB --> PG
+    MATCH --> PG
+    DUEL --> PG
 
-    subgraph planned [" Phase 2+ "]
-        direction LR
-        MATCH["Matchmaking Service"]
-        DUEL["Duel Service"]
-        WS["WS Gateway"]
+    subgraph planned [" Phase 4+ "]
         LEAD["Leaderboard Service"]
     end
+    MQ -.-> LEAD
 ```
 
 Full design rationale — service boundaries, delivery guarantees, ELO/matchmaking algorithm, data-store choices — is written up in [`docs/goals.md`](docs/goals.md).
@@ -54,19 +65,20 @@ Full design rationale — service boundaries, delivery guarantees, ELO/matchmaki
 | Layer | Choice |
 |---|---|
 | Backend services | Java 21, Spring Boot 4.1 (WebMVC + WebFlux for the reactive Gateway), Spring Security, Spring Data JPA, Flyway |
-| API Gateway | Spring Cloud Gateway — JWT validation, routing, Redis-backed token-bucket rate limiting |
+| API Gateway | Hand-rolled reactive HTTP proxy (Spring WebFlux, not Spring Cloud Gateway) — JWT validation, routing, Redis-backed token-bucket rate limiting. No WebSocket-upgrade support (see WS Gateway below). |
 | Auth | JWT (JJWT/HS256), refresh-token rotation, Google OAuth2, transactional outbox for event publishing |
-| Async messaging | RabbitMQ — task queues (judge jobs) + topic exchange (event fanout) |
-| Data stores | PostgreSQL (relational core: users, problems, submissions metadata), MongoDB (variable-shape per-test-case judge output), Redis (rate limiting; matching/leaderboard/WS sessions once built) |
+| Real-time duel | STOMP over WebSocket via a standalone WS Gateway service — JWT verified on the STOMP CONNECT frame, RabbitMQ → Redis Pub/Sub → local Spring `SimpleBroker` relay for horizontal scaling |
+| Async messaging | RabbitMQ — task queues (judge jobs, matchmaking join requests) + topic exchange (event fanout: `match.created`/`duel.progress`/`match.completed`) |
+| Data stores | PostgreSQL (relational core: users, problems, submissions/match metadata), MongoDB (variable-shape per-test-case judge output), Redis (rate limiting, ELO matching index, WS Pub/Sub fanout; leaderboard once built) |
 | Code execution | Docker (`docker-java` client) — ephemeral, resource-limited sandbox containers per submission |
-| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
-|Planned  | Kubernetes + Helm, Prometheus + Grafana (Actuator/Micrometer already wired per-service) |
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4, `@stomp/stompjs` |
+|Planned  | Kubernetes + Helm, Prometheus + Grafana (Actuator/Micrometer already wired per-service), Leaderboard Service |
 
 ## How to run
 
 **Prerequisites:** Docker Desktop, JDK 21, Node.js 20+.
 
-1. **Start local infra** (Postgres, MongoDB, Redis, RabbitMQ, admin UIs, and the containerized Judge Worker):
+1. **Start local infra** (Postgres, MongoDB, Redis, RabbitMQ, admin UIs, and the three containerized app services — Judge Worker, Duel Service, WS Gateway):
    ```bash
    docker compose -f docker-compose.infra.yml up -d
    ```
@@ -76,22 +88,22 @@ Full design rationale — service boundaries, delivery guarantees, ELO/matchmaki
    ./scripts/build-sandbox-images.ps1
    ```
 
-3. **Run each Spring Boot service** (each is an independent Gradle project):
+3. **Run each remaining Spring Boot service** (each is an independent Gradle project; Judge Worker, Duel Service, and WS Gateway already run via docker-compose above):
    ```bash
-   cd services/auth-service && ./gradlew bootRun        # :8082
-   cd services/user-service && ./gradlew bootRun        # :8083
-   cd services/gateway && ./gradlew bootRun             # :8084
-   cd services/problem-service && ./gradlew bootRun     # :8085
-   cd services/submission-service && ./gradlew bootRun  # :8086
-   # judge-worker already runs via docker-compose above (:8087)
+   cd services/auth-service && ./gradlew bootRun          # :8082
+   cd services/user-service && ./gradlew bootRun          # :8083
+   cd services/gateway && ./gradlew bootRun               # :8084
+   cd services/problem-service && ./gradlew bootRun       # :8085
+   cd services/submission-service && ./gradlew bootRun    # :8086
+   cd services/matchmaking-service && ./gradlew bootRun   # :8088
    ```
-   `auth-service` needs `GMAIL_USERNAME`/`GMAIL_APP_PASSWORD` env vars for verification emails (a Gmail app password, not the account password) and optionally `JWT_SECRET` (falls back to a dev-only default otherwise).
+   `auth-service` needs `GMAIL_USERNAME`/`GMAIL_APP_PASSWORD` env vars for verification emails (a Gmail app password, not the account password) and optionally `JWT_SECRET` (falls back to a dev-only default otherwise, shared by `gateway` and `ws-gateway` too).
 
 4. **Run the frontend:**
    ```bash
    cd frontend && npm install && npm run dev
    ```
-   Open `http://localhost:3000`. `frontend/.env.local` already points `NEXT_PUBLIC_AUTH_API_URL` at `auth-service` (`:8082`).
+   Open `http://localhost:3000`. `frontend/.env.local` points `NEXT_PUBLIC_AUTH_API_URL` at `auth-service` (`:8082`), `NEXT_PUBLIC_GATEWAY_API_URL` at the Gateway (`:8084`), and `NEXT_PUBLIC_WS_GATEWAY_URL` at WS Gateway (`:8090`).
 
 **Admin UIs** (brought up by step 1, throwaway local-dev credentials `leetduel` / `leetduel_dev`):
 

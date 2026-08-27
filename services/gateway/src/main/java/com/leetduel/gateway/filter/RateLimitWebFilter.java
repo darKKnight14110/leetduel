@@ -45,13 +45,13 @@ public class RateLimitWebFilter implements WebFilter {
     private static final int TOKENS_PER_REQUEST = 1;
 
     private final ReactiveStringRedisTemplate redisTemplate;
-    private final RedisScript<List> tokenBucketScript;
+    private final RedisScript<List<Object>> tokenBucketScript;
     private final int capacity;
     private final double refillTokensPerSecond;
     private final long ttlSeconds;
 
     public RateLimitWebFilter(ReactiveStringRedisTemplate redisTemplate,
-                               RedisScript<List> tokenBucketScript,
+                               RedisScript<List<Object>> tokenBucketScript,
                                RouteProperties routeProperties) {
         this.redisTemplate = redisTemplate;
         this.tokenBucketScript = tokenBucketScript;

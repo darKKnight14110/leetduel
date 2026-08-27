@@ -114,15 +114,17 @@ Delivered:
 5. Max-wait expiry (120s) resolves the previously-open stale-join-request question; `GET /matchmaking/queue/status` and `DELETE /matchmaking/queue/leave` round out the API.
 6. **Demo checkpoint (met):** two test clients join the queue, get paired within the expected window, Match record exists in Postgres — verified via API/logs, no live duel UI yet.
 
-### Phase 3 — Real-time duel
+### Phase 3 — Real-time duel (done)
 Prerequisite reading: §6 (WebSocket/STOMP)
 
-Plan:
-1. WS Gateway Service: accepts client WebSocket connections, registers `connectionId` per user in Redis, subscribes to the topic exchange for `match.created`/`duel.progress`/`match.completed`.
-2. Duel Service: owns match lifecycle, consumes judge verdicts tagged with `matchId`, updates progress %, republishes `duel.progress`.
-3. Win condition + ELO update logic (standard ELO formula, K-factor ~32) on match completion, per `goals.md`'s duel flow.
-4. WS Gateway pushes opponent's progress bar (not code, not submission count) to the other player's connection via the Redis `matchId -> connectionIds` lookup.
-5. **Demo checkpoint:** two browser tabs, join queue, get matched, both see a live duel screen, opponent's progress bar updates in real time, winner declared, ELO updates.
+Delivered:
+1. `matchId`/`userId` threaded through Submission Service (`CreateSubmissionRequest`, `Submission` entity, `SubmissionResponse`, `JudgeJobCreatedEvent`) and Judge Worker (`SubmissionJudgedEvent`) — a gap caught mid-build: the verdict event originally carried no way to identify which player submitted it.
+2. Duel Service: consumes `match.created` (persists a `Match` row keyed by the same matchId matchmaking-service generated) and `submission.judged` (filtered on `matchId != null`), updates per-player progress % (`max(existing, new)` so a worse resubmission never regresses the bar), win condition (first to 100%) and a `MatchTimeoutSweeper` (~1s, mirrors `MatchmakingSweepScheduler`) for time-limit expiry. The `IN_PROGRESS → COMPLETED` transition is guarded by JPA optimistic locking (`@Version`) against two near-simultaneous writers.
+3. `EloCalculator`: standard logistic-curve ELO, K-factor 32, computed from each player's ELO-at-match-time (frozen on the `Match` row, never a live lookup). `duel.progress`/`match.completed` published via the same transactional-outbox pattern as `matchmaking-service`'s `MatchWriter`/`OutboxRelay`.
+4. WS Gateway Service (standalone, direct-connect — not proxied through the API Gateway, which has no WebSocket-upgrade support): STOMP over WebSocket, JWT validated on the STOMP `CONNECT` frame (a `ChannelInterceptor`, not an HTTP filter — a browser can't set an `Authorization` header on a native WS upgrade). Horizontal-scaling fanout: one instance consumes each RabbitMQ event, re-publishes to a Redis Pub/Sub channel every instance subscribes to, and each instance's local Spring `SimpleBroker` only pushes to sessions it locally holds — first Redis Pub/Sub usage in this repo (every prior Redis use is request-response, not broadcast).
+5. User Service: `MatchCompletedListener` (sole writer of ELO), `UserProfileService.applyMatchResult` guarded by a `profile.processed_match_completions(match_id)` dedup table — applying an ELO delta isn't naturally idempotent the way the outbox pattern's `published_at IS NULL` check is, so this needed an explicit guard against RabbitMQ's at-least-once redelivery.
+6. Frontend: `/duel/[matchId]` page (`@stomp/stompjs` over native WebSocket, no SockJS fallback), initial state fetched via Duel Service's `GET /duels/{matchId}` (routed through the API Gateway) with WS carrying only live deltas after that. Matchmaking page's `MATCHED` state now routes here instead of the old placeholder.
+7. **Demo checkpoint:** two browser tabs, join queue, get matched, both see a live duel screen, opponent's progress bar updates in real time, winner declared, ELO updates. Verified up through build/lint/typecheck for all five backend services and the frontend; not yet run live end-to-end in two browser tabs.
 
 ### Phase 4 — Leaderboard + profile/stats
 Plan:
@@ -134,10 +136,9 @@ Plan:
 ### Phase 5 — Frontend React SPA
 Prerequisite reading: §11 (React/TS/Monaco). Built incrementally alongside Phases 0-4's API surface rather than as one final phase.
 
-Status: landing page, login/signup (wired to Auth Service), and problem browser are implemented. Remaining:
-1. Matchmaking queue screen ("searching for opponent...", cancel button).
-2. Live duel view: opponent progress bar driven by the WS connection.
-3. Leaderboard page, profile/stats page with rating history chart.
+Status: landing page, login/signup (wired to Auth Service), problem browser, matchmaking queue screen, and the live duel view (`/duel/[matchId]`, opponent progress bar driven by the WS connection) are implemented. Remaining:
+1. Leaderboard page, profile/stats page with rating history chart.
+2. Monaco code editor (currently a plain textarea — a named scope trade-off, not a silent one).
 
 ### Phase 6 — Kubernetes deployment
 Prerequisite reading: §9 (K8s/Helm)
@@ -165,4 +166,4 @@ Plan:
 
 ## Remaining open design questions
 
-Tracked in full in `goals.md`'s "Open questions / deferred decisions": exact data model for the Phase 3+ services (Duel/Match, Leaderboard), judge anti-cheat scope, testing strategy, CI/CD pipeline, and k8s manifest layout. Resolved incrementally as each phase lands, not as a blocking upfront pass. (Matchmaking join-request expiry was resolved in Phase 2.)
+Tracked in full in `goals.md`'s "Open questions / deferred decisions": exact data model for the not-yet-built Leaderboard Service, judge anti-cheat scope, testing strategy, CI/CD pipeline, and k8s manifest layout. Resolved incrementally as each phase lands, not as a blocking upfront pass. (Matchmaking join-request expiry was resolved in Phase 2; Duel/Match's schema, WS auth, and cross-instance fanout were resolved in Phase 3.)
