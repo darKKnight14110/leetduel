@@ -15,6 +15,12 @@ public record RouteProperties(List<Route> routes, List<String> publicPaths, Rate
     public record Route(String path, String uri) {
     }
 
-    public record RateLimit(int requestsPerWindow, int windowSeconds) {
+    // capacity = max tokens a bucket holds, i.e. the size of the burst a
+    // client can spend instantly before being throttled to the steady rate.
+    // refillTokensPerSecond = steady-state rate once the burst is spent.
+    // Two independent knobs (not just "N per M seconds") is what makes this
+    // a token bucket rather than a fixed window - it decouples "how bursty"
+    // from "how fast on average", which a single ratio can't express.
+    public record RateLimit(int capacity, double refillTokensPerSecond) {
     }
 }
