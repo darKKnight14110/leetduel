@@ -2,6 +2,8 @@ package com.leetduel.duel.match;
 
 import com.leetduel.duel.exception.MatchNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,5 +29,16 @@ public class DuelController {
         Match match = matchRepository.findById(matchId)
                 .orElseThrow(() -> new MatchNotFoundException("Match not found: " + matchId));
         return ResponseEntity.ok(MatchResponse.from(match));
+    }
+
+    // Literal "history" segment first, not /duels/{matchId}/history -
+    // keeps Spring's PathPattern matcher from ever needing to decide
+    // whether "history" is a UUID matchId (Phase 4 plan's explicit note).
+    @GetMapping("/history/{userId}")
+    public ResponseEntity<Page<MatchResponse>> getHistory(@PathVariable UUID userId, Pageable pageable) {
+        Page<MatchResponse> page = matchRepository
+                .findByPlayer1IdOrPlayer2IdOrderByStartedAtDesc(userId, userId, pageable)
+                .map(MatchResponse::from);
+        return ResponseEntity.ok(page);
     }
 }

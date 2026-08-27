@@ -292,3 +292,79 @@ export type MatchResponse = {
 export function getDuelMatch(matchId: string): Promise<MatchResponse> {
   return authorizedFetch(`/duels/${matchId}`);
 }
+
+export function getMatchHistory(userId: string, page = 0, size = 20): Promise<PagedResponse<MatchResponse>> {
+  return authorizedFetch(`/duels/history/${userId}?page=${page}&size=${size}`);
+}
+
+// Public leaderboard reads (Phase 4) - Gateway's allowlist exempts these
+// three exact paths from JWT verification, since leaderboard rankings are
+// public data (see the Gateway's public-paths comment). No Authorization
+// header on purpose: there may not even be a token (a logged-out visitor
+// can view /leaderboard).
+export type Board = "GLOBAL" | "WEEKLY" | "SEASON";
+
+export type LeaderboardEntry = {
+  userId: string;
+  score: number;
+  rank: number;
+};
+
+export type LeaderboardTopResponse = {
+  board: Board;
+  entries: LeaderboardEntry[];
+};
+
+export type RankWindowResponse = {
+  board: Board;
+  userId: string;
+  rank: number;
+  entries: LeaderboardEntry[];
+};
+
+const LEADERBOARD_API_URL = process.env.NEXT_PUBLIC_LEADERBOARD_API_URL ?? GATEWAY_URL;
+
+async function publicFetch<T>(path: string): Promise<T> {
+  const res = await fetch(`${LEADERBOARD_API_URL}${path}`);
+  if (!res.ok) {
+    const data: unknown = await res.json().catch(() => null);
+    throw new ApiError(extractMessage(data) ?? `Request failed (${res.status})`);
+  }
+  return res.json() as Promise<T>;
+}
+
+export function getLeaderboardTop(board: Board, limit = 50): Promise<LeaderboardTopResponse> {
+  return publicFetch(`/leaderboard/top?board=${board}&limit=${limit}`);
+}
+
+export function getLeaderboardRankWindow(board: Board, userId: string, window = 5): Promise<RankWindowResponse> {
+  return publicFetch(`/leaderboard/around?board=${board}&userId=${userId}&window=${window}`);
+}
+
+// Profile/stats reads (Phase 4) - authenticated, routed through the
+// Gateway's existing /users route to user-service's new ProfileController.
+export type ProfileStats = {
+  userId: string;
+  elo: number;
+  duelsWon: number;
+  duelsLost: number;
+  duelsDrawn: number;
+  avgOppEloWon: number | null;
+  avgOppEloLost: number | null;
+  avgOppEloDrawn: number | null;
+};
+
+export type EloHistoryPoint = {
+  matchId: string;
+  eloAfter: number;
+  eloDelta: number;
+  recordedAt: string;
+};
+
+export function getProfileStats(userId: string): Promise<ProfileStats> {
+  return authorizedFetch(`/users/profile/${userId}`);
+}
+
+export function getEloHistory(userId: string): Promise<EloHistoryPoint[]> {
+  return authorizedFetch(`/users/profile/${userId}/history`);
+}

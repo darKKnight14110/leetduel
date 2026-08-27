@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.UUID;
 
 // First service layer in user-service - added ahead of need at Phase 0/1
@@ -20,6 +21,7 @@ public class UserProfileService {
 
     private final UserProfileRepository userProfileRepository;
     private final ProcessedMatchCompletionRepository processedMatchCompletionRepository;
+    private final EloHistoryRepository eloHistoryRepository;
 
     public InternalProfileDto getProfile(UUID userId) {
         UserProfile profile = userProfileRepository.findById(userId)
@@ -27,11 +29,21 @@ public class UserProfileService {
         return new InternalProfileDto(profile.getUserId(), profile.getElo());
     }
 
+    public UserProfile getProfileOrThrow(UUID userId) {
+        return userProfileRepository.findById(userId)
+                .orElseThrow(() -> new ProfileNotFoundException("No profile yet for user " + userId));
+    }
+
+    public List<EloHistoryEntry> getEloHistory(UUID userId) {
+        return eloHistoryRepository.findTop200ByUserIdOrderByRecordedAtAsc(userId);
+    }
+
     // Sole writer of ELO (per docs/goals.md) - Duel Service computes the
     // delta but never writes into this schema directly. Single transaction:
-    // the dedup-row insert and both profile updates commit together or not
-    // at all, so a crash mid-apply can never leave the dedup marker present
-    // without the deltas having landed (or vice versa).
+    // the dedup-row insert, both profile updates, and both elo_history rows
+    // commit together or not at all, so a crash mid-apply can never leave
+    // the dedup marker present without every other write having landed (or
+    // vice versa).
     @Transactional
     public void applyMatchResult(MatchCompletedEvent event) {
         if (processedMatchCompletionRepository.existsById(event.matchId())) {
@@ -39,9 +51,9 @@ public class UserProfileService {
             return;
         }
 
-        applyResultToPlayer(event.player1Id(), event.player1EloDelta(), event.player2EloAtMatch(),
+        applyResultToPlayer(event.matchId(), event.player1Id(), event.player1EloDelta(), event.player2EloAtMatch(),
                 event.isDraw(), event.winnerId() != null && event.winnerId().equals(event.player1Id()));
-        applyResultToPlayer(event.player2Id(), event.player2EloDelta(), event.player1EloAtMatch(),
+        applyResultToPlayer(event.matchId(), event.player2Id(), event.player2EloDelta(), event.player1EloAtMatch(),
                 event.isDraw(), event.winnerId() != null && event.winnerId().equals(event.player2Id()));
 
         processedMatchCompletionRepository.save(new ProcessedMatchCompletion(event.matchId()));
@@ -52,8 +64,8 @@ public class UserProfileService {
     // ELO-at-match-time, not their live post-match ELO" note: using live ELO
     // would make sum_opp_elo_* depend on when it's read, not what actually
     // happened in that match.
-    private void applyResultToPlayer(UUID playerId, int eloDelta, int opponentEloAtMatch, boolean isDraw,
-            boolean won) {
+    private void applyResultToPlayer(UUID matchId, UUID playerId, int eloDelta, int opponentEloAtMatch,
+            boolean isDraw, boolean won) {
         UserProfile profile = userProfileRepository.findById(playerId)
                 .orElseThrow(() -> new ProfileNotFoundException("No profile yet for user " + playerId));
 
@@ -69,5 +81,6 @@ public class UserProfileService {
             profile.setSumOppEloLost(profile.getSumOppEloLost() + opponentEloAtMatch);
         }
         userProfileRepository.save(profile);
+        eloHistoryRepository.save(new EloHistoryEntry(playerId, matchId, profile.getElo(), eloDelta));
     }
 }

@@ -126,9 +126,17 @@ export default function MatchmakingPage() {
         <Link href="/" aria-label="LeetDuel home">
           <Logo />
         </Link>
-        <Link href="/problems" className="text-sm text-fg-muted hover:text-fg">
-          Practice solo instead
-        </Link>
+        <div className="flex items-center gap-4 text-sm text-fg-muted">
+          <Link href="/leaderboard" className="hover:text-fg">
+            Leaderboard
+          </Link>
+          <Link href="/profile" className="hover:text-fg">
+            Profile
+          </Link>
+          <Link href="/problems" className="hover:text-fg">
+            Practice solo instead
+          </Link>
+        </div>
       </div>
 
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center px-6 py-16 text-center">

@@ -1,0 +1,46 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.1.1'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.leetduel'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// No JPA/Flyway/Postgres - this service holds no durable data of its
+	// own by design (see docs/goals.md's "Redis = ephemeral/hot state
+	// only"). It is a pure read-projection over match.completed events,
+	// same Redis+RabbitMQ-only footprint as ws-gateway.
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+	implementation 'org.springframework.boot:spring-boot-starter-amqp'
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	// Scoped to the Lua increment-script atomicity test only
+	// (IncrementScoreLuaScriptIT) - same precedent as matchmaking-service's
+	// PairingLuaScriptIT: the dedup-then-increment atomicity claim is
+	// unverifiable against a mocked RedisTemplate.
+	testImplementation 'org.testcontainers:junit-jupiter:1.21.4'
+	testImplementation 'org.testcontainers:testcontainers:1.21.4'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testCompileOnly 'org.projectlombok:lombok'
+	testAnnotationProcessor 'org.projectlombok:lombok'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+	systemProperty 'user.timezone', 'UTC'
+}

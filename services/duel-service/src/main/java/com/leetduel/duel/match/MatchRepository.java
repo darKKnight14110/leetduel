@@ -1,5 +1,7 @@
 package com.leetduel.duel.match;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -13,4 +15,8 @@ public interface MatchRepository extends JpaRepository<Match, UUID> {
     // same "fetch the live subset, filter in application code" shape as
     // MatchmakingSweepScheduler's Redis hash scan.
     List<Match> findByStatus(MatchStatus status);
+
+    // Serves GET /duels/history/{userId} (Phase 4) - a user can be either
+    // player1 or player2 on a given match, so both columns need checking.
+    Page<Match> findByPlayer1IdOrPlayer2IdOrderByStartedAtDesc(UUID player1Id, UUID player2Id, Pageable pageable);
 }

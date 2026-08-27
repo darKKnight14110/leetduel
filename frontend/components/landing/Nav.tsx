@@ -20,6 +20,9 @@ export function Nav() {
           <Link href="#ratings" className="hover:text-fg">
             Ratings
           </Link>
+          <Link href="/leaderboard" className="hover:text-fg">
+            Leaderboard
+          </Link>
         </nav>
         <Button href="/login" variant="primary">
           Log in

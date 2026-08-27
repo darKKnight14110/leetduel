@@ -122,6 +122,20 @@ services:
       - rabbitmq
       - redis
 
+  # Phase 4: read-optimized materialized view over match.completed. Redis
+  # sorted sets only, no Postgres - same Redis+RabbitMQ-only footprint as
+  # ws-gateway, per docs/goals.md's "Redis = ephemeral/hot state only".
+  leaderboard-service:
+    build: ./services/leaderboard-service
+    environment:
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_DATA_REDIS_HOST: redis
+    ports:
+      - "8091:8091"
+    depends_on:
+      - rabbitmq
+      - redis
+
 volumes:
   postgres_data:
   mongo_data:
