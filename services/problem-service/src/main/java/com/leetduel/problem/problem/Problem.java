@@ -34,6 +34,12 @@ public class Problem {
     @Column(nullable = false, length = 200)
     private String title;
 
+    @Column(length = 80)
+    private String source;
+
+    @Column(name = "source_id", length = 160)
+    private String sourceId;
+
     @Column(nullable = false, columnDefinition = "text")
     private String description;
 

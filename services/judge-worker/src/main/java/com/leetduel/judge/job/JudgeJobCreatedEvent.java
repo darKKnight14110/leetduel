@@ -28,6 +28,10 @@ public record JudgeJobCreatedEvent(
     public record ParameterPayload(String name, String type) {
     }
 
-    public record TestCasePayload(int ordinal, String input, String expectedOutput) {
+    public record TestCasePayload(int ordinal, String input, String expectedOutput, boolean sample) {
+
+        public TestCasePayload(int ordinal, String input, String expectedOutput) {
+            this(ordinal, input, expectedOutput, false);
+        }
     }
 }

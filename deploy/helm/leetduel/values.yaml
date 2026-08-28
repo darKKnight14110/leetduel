@@ -1,5 +1,7 @@
 global:
   secretName: leetduel-secrets
+  security:
+    allowInsecureImages: true
   ingress:
     enabled: true
     className: nginx
@@ -13,6 +15,11 @@ images:
 
 postgresql:
   fullnameOverride: postgresql
+  image:
+    registry: ""
+    repository: leetduel-postgresql
+    tag: dev
+    pullPolicy: IfNotPresent
   auth:
     username: leetduel
     database: leetduel
@@ -125,6 +132,8 @@ apps:
         value: http://duel-service:8089
       - name: LEETDUEL_LEADERBOARD_URI
         value: http://leaderboard-service:8091
+      - name: LEETDUEL_PRACTICE_URI
+        value: http://practice-intelligence-service:8092
   problem:
     name: problem-service
     image: leetduel-problem
@@ -234,3 +243,21 @@ apps:
         cpu: 500m
         memory: 768Mi
     env: []
+  practice:
+    name: practice-intelligence-service
+    image: leetduel-practice
+    port: 8092
+    database: true
+    rabbit: true
+    redis: true
+    nvidia: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 384Mi
+      limits:
+        cpu: 500m
+        memory: 768Mi
+    env:
+      - name: PROBLEM_SERVICE_BASE_URL
+        value: http://problem-service:8085

@@ -46,6 +46,13 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             Principal principal = new UserPrincipal(validated.userId());
             accessor.setUser(principal);
         }
+        if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
+            String destination = accessor.getDestination();
+            if (destination != null && destination.startsWith("/user/")
+                    && !"/user/queue/practice".equals(destination)) {
+                throw new StompAuthenticationException("Unsupported user destination");
+            }
+        }
         return message;
     }
 

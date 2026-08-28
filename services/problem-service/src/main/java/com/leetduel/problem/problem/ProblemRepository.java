@@ -34,4 +34,6 @@ public interface ProblemRepository extends JpaRepository<Problem, UUID> {
     // matchmaking-service's random problem-per-match selection.
     @Query(value = "SELECT * FROM problem.problems ORDER BY random() LIMIT 1", nativeQuery = true)
     Optional<Problem> findRandom();
+
+    Optional<Problem> findBySourceAndSourceId(String source, String sourceId);
 }

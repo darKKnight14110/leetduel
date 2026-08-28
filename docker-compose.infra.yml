@@ -1,14 +1,14 @@
 services:
   postgres:
-    image: postgres:16
+    build: ./docker/postgres-pgvector
     environment:
-      POSTGRES_USER: leetduel
-      POSTGRES_PASSWORD: leetduel_dev
-      POSTGRES_DB: leetduel
+      POSTGRESQL_USERNAME: leetduel
+      POSTGRESQL_PASSWORD: leetduel_dev
+      POSTGRESQL_DATABASE: leetduel
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/bitnami/postgresql
 
   pgadmin:
     image: dpage/pgadmin4
@@ -110,6 +110,27 @@ services:
     ports:
       - "8091:8091"
     depends_on:
+      - rabbitmq
+      - redis
+
+  # Phase 7: owns durable practice progress, recommendations, pgvector
+  # document projections, and asynchronous NVIDIA coaching jobs. It is a
+  # separate service rather than part of Problem Service so problem content
+  # ownership remains independent from user learning state.
+  practice-intelligence-service:
+    build: ./services/practice-intelligence-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/leetduel
+      SPRING_DATASOURCE_USERNAME: leetduel
+      SPRING_DATASOURCE_PASSWORD: leetduel_dev
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_DATA_REDIS_HOST: redis
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      PROBLEM_SERVICE_BASE_URL: http://host.docker.internal:8085
+    ports:
+      - "8092:8092"
+    depends_on:
+      - postgres
       - rabbitmq
       - redis
 

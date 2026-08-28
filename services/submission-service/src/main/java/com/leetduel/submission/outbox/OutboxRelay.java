@@ -1,6 +1,7 @@
 package com.leetduel.submission.outbox;
 
 import com.leetduel.submission.event.JudgeJobCreatedEvent;
+import com.leetduel.submission.event.PracticeSubmissionCompletedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -29,6 +30,9 @@ public class OutboxRelay {
     @Value("${leetduel.events.judge-jobs-exchange}")
     private String exchange;
 
+    @Value("${leetduel.events.practice-exchange}")
+    private String practiceExchange;
+
     // Deliberately NOT @Transactional at the method level - see
     // auth-service's OutboxRelay for why (one bad event must retry alone,
     // not roll back publishes already committed for events ahead of it).
@@ -38,8 +42,12 @@ public class OutboxRelay {
 
         for (OutboxEvent event : pending) {
             try {
-                JudgeJobCreatedEvent payload = objectMapper.readValue(event.getPayload(), JudgeJobCreatedEvent.class);
-                rabbitTemplate.convertAndSend(exchange, event.getEventType(), payload);
+                Object payload = event.getEventType().equals("practice.submission.completed")
+                        ? objectMapper.readValue(event.getPayload(), PracticeSubmissionCompletedEvent.class)
+                        : objectMapper.readValue(event.getPayload(), JudgeJobCreatedEvent.class);
+                String targetExchange = event.getEventType().equals("practice.submission.completed")
+                        ? practiceExchange : exchange;
+                rabbitTemplate.convertAndSend(targetExchange, event.getEventType(), payload);
                 event.setPublishedAt(Instant.now());
                 outboxEventRepository.save(event);
             } catch (Exception e) {

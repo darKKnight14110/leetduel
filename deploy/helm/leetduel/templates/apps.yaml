@@ -74,6 +74,14 @@ spec:
                   name: {{ $.Values.global.secretName }}
                   key: jwt-secret
             {{- end }}
+            {{- if $app.nvidia }}
+            - name: NVIDIA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.global.secretName }}
+                  key: nvidia-api-key
+                  optional: true
+            {{- end }}
             {{- range $environment := $app.env }}
             - name: {{ $environment.name }}
               {{- if hasKey $environment "valueFrom" }}

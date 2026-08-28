@@ -27,7 +27,8 @@ $components = @(
     @{ Tag = "leetduel-ws-gateway:dev"; Context = "services/ws-gateway" },
     @{ Tag = "leetduel-leaderboard:dev"; Context = "services/leaderboard-service" },
     @{ Tag = "leetduel-judge-dispatcher:dev"; Context = "services/judge-worker" },
-    @{ Tag = "leetduel-frontend:dev"; Context = "frontend" }
+    @{ Tag = "leetduel-frontend:dev"; Context = "frontend" },
+    @{ Tag = "leetduel-practice:dev"; Context = "services/practice-intelligence-service" }
 )
 
 foreach ($component in $components) {
@@ -38,6 +39,13 @@ foreach ($component in $components) {
         $contextPath
     )
 }
+
+$postgresContext = Join-Path $root "docker/postgres-pgvector"
+Invoke-Checked @(
+    "image", "build", "--profile", $Profile,
+    "--tag", "leetduel-postgresql:dev",
+    $postgresContext
+)
 
 $judgeContext = Join-Path $root "services/judge-worker"
 Invoke-Checked @(

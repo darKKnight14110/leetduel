@@ -34,10 +34,15 @@ public class RedisToStompRelay implements MessageListener {
         String rawJson = new String(message.getBody(), StandardCharsets.UTF_8);
         JsonNode node = objectMapper.readTree(rawJson);
         JsonNode matchIdNode = node.get("matchId");
-        if (matchIdNode == null) {
-            log.warn("Fanout message missing matchId, dropping: {}", rawJson);
+        if (matchIdNode != null) {
+            messagingTemplate.convertAndSend("/topic/duel/" + matchIdNode.asString(), rawJson);
             return;
         }
-        messagingTemplate.convertAndSend("/topic/duel/" + matchIdNode.asString(), rawJson);
+        JsonNode userIdNode = node.get("userId");
+        if (userIdNode != null) {
+            messagingTemplate.convertAndSendToUser(userIdNode.asText(), "/queue/practice", rawJson);
+            return;
+        }
+        log.warn("Fanout message had no supported destination");
     }
 }

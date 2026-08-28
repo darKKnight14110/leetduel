@@ -62,6 +62,7 @@ public class JavaRunner implements LanguageRunner {
         ExecResult result = sandbox.exec(
                 List.of("java", "-cp", ".:" + jsonLibPath, "Main", testCase.input()), timeLimitMs);
         long runtimeMs = System.currentTimeMillis() - start;
-        return TestCaseEvaluator.evaluate(testCase.ordinal(), result, testCase.expectedOutput(), objectMapper, runtimeMs);
+        return TestCaseEvaluator.evaluate(testCase.ordinal(), result, testCase.expectedOutput(), objectMapper, runtimeMs,
+                testCase.sample());
     }
 }

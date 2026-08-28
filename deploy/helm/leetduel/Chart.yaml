@@ -3,7 +3,7 @@ name: leetduel
 description: LeetDuel local Kubernetes platform chart
 type: application
 version: 0.1.0
-appVersion: "phase6"
+appVersion: "phase7"
 dependencies:
   - name: postgresql
     version: 18.8.13

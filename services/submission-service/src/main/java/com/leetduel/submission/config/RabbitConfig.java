@@ -35,6 +35,11 @@ public class RabbitConfig {
     }
 
     @Bean
+    public TopicExchange practiceEventsExchange(@Value("${leetduel.events.practice-exchange}") String exchangeName) {
+        return new TopicExchange(exchangeName, true, false);
+    }
+
+    @Bean
     public Queue submissionJudgedQueue(@Value("${leetduel.events.submission-judged-queue}") String queueName) {
         return new Queue(queueName, true);
     }

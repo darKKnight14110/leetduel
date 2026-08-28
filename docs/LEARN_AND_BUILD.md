@@ -159,7 +159,24 @@ Delivered:
 6. Added `scripts/bootstrap-minikube.ps1`, `scripts/build-minikube-images.ps1`, `scripts/deploy-minikube.ps1`, and `scripts/reset-minikube-data.ps1`. Validate with `helm dependency build deploy/helm/leetduel`, `helm lint deploy/helm/leetduel`, and `helm template ...`; run full browser acceptance once Docker/Minikube is available.
 7. **Demo checkpoint:** use the scripts to deploy the Helm release, confirm every application rolls out with probes and every stateful dependency has a PVC, then exercise signup, login, practice judging, two-player matching, WebSocket progress, leaderboard changes, and profile history through the printed Ingress hostname. Kubernetes Job cold-start latency is an explicit local-demo trade-off for removing root-equivalent Docker socket access.
 
-### Phase 7 — Observability
+### Phase 7 — Intelligent practice loop (done)
+Prerequisite reading: §4 (RabbitMQ), §5 (Redis), §10 (Prometheus/Grafana/Micrometer), plus the provider and vector references below.
+
+Delivered:
+1. Practice Intelligence Service owns the `practice` Postgres schema. It records every terminal practice attempt, maintains sticky solved state, derives weak tags from failures, and exposes progress/recommendation/explanation APIs through the Gateway.
+2. Problem Service exposes a bounded internal metadata catalog and import path. The dataset script downloads a pinned `newfacade/LeetCodeDataset` `v0.3.1` compressed JSONL artifact, converts supported Python-style function cases into LeetDuel's JSON harness format, imports compatible records idempotently by source ID, preserves attribution, and creates a rejection report without storing reference solutions in user-facing data.
+3. Postgres with pgvector stores 2048-dimensional NVIDIA document embeddings. NVIDIA passage/query embedding calls are retried with bounded backoff; tag/difficulty fallback keeps practice useful when the provider or key is unavailable. Redis caches recommendations as a derived projection.
+4. Submission Service emits the additive practice-only completion event from its transactional outbox. The shared judged event now carries additive sample metadata, and public persisted results redact hidden expected/actual values. Practice consumers deduplicate by `submission_id` before updating progress or creating explanation jobs.
+5. Hints are generated asynchronously and stored as validated structured JSON. Walkthroughs are user-triggered, provider failures are retryable, source code is retained only for the bounded explanation window, and no provider prompt/output is logged. Practice WebSocket messages notify the correct authenticated user through RabbitMQ, Redis Pub/Sub, and `/user/queue/practice`; REST remains the recovery source of truth.
+6. **Demo checkpoint:** sign in, open `/problems`, see progress and recommendations, submit a practice solution, observe the terminal verdict without hidden output, receive a hint notification, and explicitly request a walkthrough.
+
+Useful references:
+- [NVIDIA Nemotron 3 Embed API](https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-embed-1b-infer)
+- [NVIDIA Nemotron 3 Super API](https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3-super-120b-a12b-infer)
+- [pgvector](https://github.com/pgvector/pgvector)
+- [LeetCodeDataset](https://github.com/newfacade/LeetCodeDataset)
+
+### Phase 8 — Observability
 Prerequisite reading: §10 (Prometheus/Grafana/Micrometer)
 
 Plan:

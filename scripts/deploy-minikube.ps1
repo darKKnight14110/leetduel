@@ -38,6 +38,19 @@ foreach ($line in Get-Content -LiteralPath $secretPath) {
     $secrets[$parts[0].Trim()] = $parts[1].Trim()
 }
 
+if (-not $secrets.ContainsKey("NVIDIA_API_KEY")) {
+    $siblingEnv = Join-Path (Split-Path $root -Parent) "Varad-BTP/deployment/api/.env"
+    if (Test-Path -LiteralPath $siblingEnv) {
+        foreach ($line in Get-Content -LiteralPath $siblingEnv) {
+            $trimmed = $line.Trim()
+            if ($trimmed -match '^NVIDIA_API_KEY=(.+)$') {
+                $secrets["NVIDIA_API_KEY"] = $Matches[1].Trim()
+                break
+            }
+        }
+    }
+}
+
 $requiredKeys = @(
     "POSTGRES_PASSWORD",
     "POSTGRES_USER_PASSWORD",
@@ -71,6 +84,11 @@ $secretArguments = @(
     "--from-literal=jwt-secret=$($secrets["JWT_SECRET"])",
     "--dry-run=client", "-o", "yaml"
 )
+if ($secrets.ContainsKey("NVIDIA_API_KEY") -and -not [string]::IsNullOrWhiteSpace($secrets["NVIDIA_API_KEY"])) {
+    $secretArguments = $secretArguments[0..10] +
+        "--from-literal=nvidia-api-key=$($secrets["NVIDIA_API_KEY"])" +
+        $secretArguments[11..13]
+}
 $secretManifest = & kubectl @secretArguments
 if ($LASTEXITCODE -ne 0) {
     throw "Could not render LeetDuel Secret"

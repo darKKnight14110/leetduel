@@ -61,6 +61,7 @@ public class PythonRunner implements LanguageRunner {
         ExecResult result = sandbox.exec(
                 List.of("python", "/sandbox/driver.py", testCase.input()), timeLimitMs);
         long runtimeMs = System.currentTimeMillis() - start;
-        return TestCaseEvaluator.evaluate(testCase.ordinal(), result, testCase.expectedOutput(), objectMapper, runtimeMs);
+        return TestCaseEvaluator.evaluate(testCase.ordinal(), result, testCase.expectedOutput(), objectMapper, runtimeMs,
+                testCase.sample());
     }
 }

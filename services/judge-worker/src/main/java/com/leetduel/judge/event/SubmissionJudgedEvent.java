@@ -28,7 +28,18 @@ public record SubmissionJudgedEvent(
             String status,
             Long runtimeMs,
             String expectedOutput,
-            String actualOutput
+            String actualOutput,
+            boolean sample
     ) {
+
+        public TestCaseResultPayload(int ordinal, String status, Long runtimeMs, String expectedOutput,
+                String actualOutput) {
+            this(ordinal, status, runtimeMs, expectedOutput, actualOutput, false);
+        }
+    }
+
+    public SubmissionJudgedEvent(UUID submissionId, String verdict, int testCasesPassed, int testCasesTotal,
+            List<TestCaseResultPayload> testResults) {
+        this(submissionId, null, null, verdict, testCasesPassed, testCasesTotal, testResults);
     }
 }

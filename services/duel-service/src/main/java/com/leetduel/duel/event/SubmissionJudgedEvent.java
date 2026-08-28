@@ -27,6 +27,12 @@ public record SubmissionJudgedEvent(
             String status,
             Long runtimeMs,
             String expectedOutput,
-            String actualOutput) {
+            String actualOutput,
+            boolean sample) {
+
+        public TestCaseResultPayload(int ordinal, String status, Long runtimeMs, String expectedOutput,
+                String actualOutput) {
+            this(ordinal, status, runtimeMs, expectedOutput, actualOutput, false);
+        }
     }
 }

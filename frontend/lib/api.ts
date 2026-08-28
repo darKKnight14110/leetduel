@@ -128,13 +128,11 @@ export type TestCaseResult = {
   ordinal: number;
   status: string;
   runtimeMs: number;
-  // Only populated on a failing case - see JudgeJobListener.toPayload on
-  // the backend. All hidden test cases (not just samples) come back
-  // through this same field once judged; the frontend doesn't currently
-  // distinguish hidden-vs-sample here, matching what submission-service's
-  // own read endpoint returns as-is.
+  // Hidden expected/actual values are redacted by Submission Service. Sample
+  // metadata remains so the practice page can show useful local feedback.
   expectedOutput: string | null;
   actualOutput: string | null;
+  sample: boolean;
 };
 
 export type SubmissionResponse = {
@@ -224,6 +222,73 @@ export function createSubmission(
 
 export function getSubmission(id: string): Promise<SubmissionResponse> {
   return authorizedFetch(`/submissions/${id}`);
+}
+
+export type Recommendation = {
+  problemId: string;
+  slug: string;
+  title: string;
+  difficulty: Difficulty;
+  tags: string[];
+  reason: string;
+  score: number;
+};
+
+export type PracticeOverview = {
+  attemptedCount: number;
+  solvedCount: number;
+  recommendations: Recommendation[];
+  solvedProblemIds: string[];
+  attemptedProblemIds: string[];
+};
+
+export type ProblemProgress = {
+  problemId: string;
+  attemptedCount: number;
+  solved: boolean;
+  lastVerdict: Verdict | null;
+  lastAttemptAt: string | null;
+};
+
+export type ExplanationContent = {
+  summary: string;
+  whatHappened: string;
+  concepts: string[];
+  hint: string;
+  complexity: string;
+  nextSteps: string[];
+  walkthrough: string;
+};
+
+export type ExplanationResponse = {
+  submissionId: string;
+  hintStatus: "QUEUED" | "GENERATING" | "READY" | "RETRYABLE" | "FAILED";
+  hint: ExplanationContent | null;
+  walkthroughStatus: "NOT_REQUESTED" | "GENERATING" | "READY" | "RETRYABLE" | "FAILED";
+  walkthrough: ExplanationContent | null;
+  retryCount: number;
+  lastError: string | null;
+  updatedAt: string;
+};
+
+export function getPracticeOverview(): Promise<PracticeOverview> {
+  return authorizedFetch("/practice/overview");
+}
+
+export function getProblemProgress(problemId: string): Promise<ProblemProgress> {
+  return authorizedFetch(`/practice/problems/${problemId}/progress`);
+}
+
+export function getPracticeExplanation(submissionId: string): Promise<ExplanationResponse> {
+  return authorizedFetch(`/practice/explanations/${submissionId}`);
+}
+
+export function retryPracticeHint(submissionId: string): Promise<ExplanationResponse> {
+  return authorizedFetch(`/practice/explanations/${submissionId}/retry`, { method: "POST" });
+}
+
+export function requestPracticeWalkthrough(submissionId: string): Promise<ExplanationResponse> {
+  return authorizedFetch(`/practice/explanations/${submissionId}/walkthrough`, { method: "POST" });
 }
 
 // join() returns 202 Accepted with no body (see QueueController) -

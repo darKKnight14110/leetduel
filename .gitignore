@@ -24,6 +24,7 @@ dist/
 .env
 .env.local
 deploy/.env.k8s.local
+deploy/.env.runtime
 deploy/helm/leetduel/charts/
 .phase6-rendered.yaml
 

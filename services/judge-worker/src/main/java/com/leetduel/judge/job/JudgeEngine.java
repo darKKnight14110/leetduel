@@ -82,7 +82,7 @@ public class JudgeEngine {
         boolean passed = outcome.status() == TestCaseStatus.PASSED;
         return new SubmissionJudgedEvent.TestCaseResultPayload(
                 outcome.ordinal(), outcome.status().name(), outcome.runtimeMs(),
-                passed ? null : outcome.expectedOutput(), passed ? null : outcome.actualOutput());
+                passed ? null : outcome.expectedOutput(), passed ? null : outcome.actualOutput(), outcome.sample());
     }
 
     private SubmissionJudgedEvent result(JudgeJobCreatedEvent job, Verdict verdict, int passed, int total,

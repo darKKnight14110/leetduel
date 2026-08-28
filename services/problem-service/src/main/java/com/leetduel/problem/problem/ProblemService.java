@@ -5,6 +5,8 @@ import com.leetduel.problem.dto.InternalProblemDetailDto;
 import com.leetduel.problem.dto.InternalRandomProblemDto;
 import com.leetduel.problem.dto.ParameterDto;
 import com.leetduel.problem.dto.ProblemDetailDto;
+import com.leetduel.problem.dto.ProblemCatalogDto;
+import com.leetduel.problem.dto.ProblemImportRequest;
 import com.leetduel.problem.dto.ProblemSummaryDto;
 import com.leetduel.problem.dto.TestCaseDto;
 import com.leetduel.problem.exception.ProblemNotFoundException;
@@ -31,6 +33,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.LinkedHashMap;
 
 @Service
 @RequiredArgsConstructor
@@ -55,6 +58,21 @@ public class ProblemService {
                 .toList();
     }
 
+    public Page<ProblemCatalogDto> getCatalog(Pageable pageable) {
+        Page<Problem> problems = problemRepository.findAll(pageable);
+        List<UUID> ids = problems.getContent().stream().map(Problem::getId).toList();
+        Map<UUID, List<String>> tagsByProblem = new LinkedHashMap<>();
+        ids.forEach(id -> tagsByProblem.put(id, new ArrayList<>()));
+        if (!ids.isEmpty()) {
+            for (Object[] row : problemTagRepository.findTagNamesByProblemIds(ids)) {
+                UUID problemId = (UUID) row[0];
+                tagsByProblem.computeIfAbsent(problemId, ignored -> new ArrayList<>()).add((String) row[1]);
+            }
+        }
+        return problems.map(problem -> new ProblemCatalogDto(problem.getId(), problem.getSlug(), problem.getTitle(),
+                problem.getDescription(), problem.getDifficulty(), tagsByProblem.getOrDefault(problem.getId(), List.of())));
+    }
+
     public ProblemDetailDto getPublicDetail(UUID problemId) {
         Problem problem = requireProblem(problemId);
         FunctionSignature signature = functionSignatureRepository.findByProblemId(problemId)
@@ -66,7 +84,7 @@ public class ProblemService {
         }
         List<TestCaseDto> sampleCases = new ArrayList<>();
         for (TestCase tc : testCaseRepository.findByProblemIdAndIsSampleTrueOrderByOrdinalAsc(problemId)) {
-            sampleCases.add(new TestCaseDto(tc.getOrdinal(), tc.getInput(), tc.getExpectedOutput()));
+            sampleCases.add(new TestCaseDto(tc.getOrdinal(), tc.getInput(), tc.getExpectedOutput(), true));
         }
 
         return new ProblemDetailDto(
@@ -82,7 +100,7 @@ public class ProblemService {
         List<ParameterDto> parameters = toParameterDtos(signature.getId());
         List<TestCaseDto> allCases = new ArrayList<>();
         for (TestCase tc : testCaseRepository.findByProblemIdOrderByOrdinalAsc(problemId)) {
-            allCases.add(new TestCaseDto(tc.getOrdinal(), tc.getInput(), tc.getExpectedOutput()));
+            allCases.add(new TestCaseDto(tc.getOrdinal(), tc.getInput(), tc.getExpectedOutput(), tc.isSample()));
         }
 
         return new InternalProblemDetailDto(
@@ -92,11 +110,24 @@ public class ProblemService {
 
     @Transactional
     public UUID createProblem(CreateProblemRequest request) {
+        return createProblem(request, null, null);
+    }
+
+    @Transactional
+    public UUID importProblem(ProblemImportRequest request) {
+        return problemRepository.findBySourceAndSourceId(request.source(), request.sourceId())
+                .map(Problem::getId)
+                .orElseGet(() -> createProblem(request.problem(), request.source(), request.sourceId()));
+    }
+
+    private UUID createProblem(CreateProblemRequest request, String source, String sourceId) {
         Problem problem = new Problem();
         problem.setSlug(request.slug());
         problem.setTitle(request.title());
         problem.setDescription(request.description());
         problem.setDifficulty(request.difficulty());
+        problem.setSource(source);
+        problem.setSourceId(sourceId);
         if (request.timeLimitMs() != null) {
             problem.setTimeLimitMs(request.timeLimitMs());
         }

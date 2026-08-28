@@ -45,4 +45,20 @@ public class RabbitConfig {
             @Value("${leetduel.events.match-completed-routing-key}") String routingKey) {
         return BindingBuilder.bind(wsGatewayQueue).to(matchEventsExchange).with(routingKey);
     }
+
+    @Bean
+    public TopicExchange practiceEventsExchange(@Value("${leetduel.events.practice-exchange}") String exchangeName) {
+        return new TopicExchange(exchangeName, true, false);
+    }
+
+    @Bean
+    public Queue practiceEventsQueue(@Value("${leetduel.events.practice-ws-queue}") String queueName) {
+        return new Queue(queueName, true);
+    }
+
+    @Bean
+    public Binding practiceExplanationBinding(Queue practiceEventsQueue, TopicExchange practiceEventsExchange,
+            @Value("${leetduel.events.practice-explanation-routing-key}") String routingKey) {
+        return BindingBuilder.bind(practiceEventsQueue).to(practiceEventsExchange).with(routingKey);
+    }
 }

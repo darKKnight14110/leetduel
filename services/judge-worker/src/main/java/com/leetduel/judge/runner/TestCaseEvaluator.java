@@ -14,13 +14,18 @@ final class TestCaseEvaluator {
 
     static TestCaseOutcome evaluate(int ordinal, ExecResult execResult, String expectedOutputJson,
             ObjectMapper objectMapper, long runtimeMs) {
+        return evaluate(ordinal, execResult, expectedOutputJson, objectMapper, runtimeMs, false);
+    }
+
+    static TestCaseOutcome evaluate(int ordinal, ExecResult execResult, String expectedOutputJson,
+            ObjectMapper objectMapper, long runtimeMs, boolean sample) {
         if (execResult.isTimeLimitExceeded()) {
             return new TestCaseOutcome(ordinal, TestCaseStatus.TIME_LIMIT_EXCEEDED, runtimeMs,
-                    expectedOutputJson, null);
+                    expectedOutputJson, null, sample);
         }
         if (execResult.exitCode() == null || execResult.exitCode() != 0) {
             return new TestCaseOutcome(ordinal, TestCaseStatus.RUNTIME_ERROR, runtimeMs,
-                    expectedOutputJson, execResult.stderr());
+                    expectedOutputJson, execResult.stderr(), sample);
         }
 
         String actual = execResult.stdout().trim();
@@ -34,6 +39,6 @@ final class TestCaseEvaluator {
         }
 
         TestCaseStatus status = matches ? TestCaseStatus.PASSED : TestCaseStatus.WRONG_ANSWER;
-        return new TestCaseOutcome(ordinal, status, runtimeMs, expectedOutputJson, actual);
+        return new TestCaseOutcome(ordinal, status, runtimeMs, expectedOutputJson, actual, sample);
     }
 }

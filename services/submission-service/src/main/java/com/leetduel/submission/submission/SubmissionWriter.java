@@ -52,7 +52,7 @@ class SubmissionWriter {
                 .map(p -> new JudgeJobCreatedEvent.ParameterPayload(p.name(), p.type()))
                 .toList();
         List<JudgeJobCreatedEvent.TestCasePayload> testCases = problemDetail.testCases().stream()
-                .map(tc -> new JudgeJobCreatedEvent.TestCasePayload(tc.ordinal(), tc.input(), tc.expectedOutput()))
+                .map(tc -> new JudgeJobCreatedEvent.TestCasePayload(tc.ordinal(), tc.input(), tc.expectedOutput(), tc.sample()))
                 .toList();
 
         return new JudgeJobCreatedEvent(

@@ -2,7 +2,7 @@
 
 Target: backend-heavy systems project demonstrating full system-design-primer coverage for top systems/backend engineering roles.
 
-Status: Phases 0-5 and Phase 6 (Minikube/Helm deployment) are implemented. See "Implementation phases" below for the full breakdown.
+Status: Phases 0-7 are implemented, including the Minikube/Helm deployment and intelligent practice loop. See "Implementation phases" below for the full breakdown.
 
 ## Pitch
 
@@ -26,14 +26,16 @@ Full platform, built in phases. Each phase independently demoable and resume-wor
 | Duel Service | owns live match lifecycle, both players' progress, decides winner, computes ELO delta (has both ratings from match creation, no cross-service lookup needed) | Postgres (match record) |
 | WS Gateway Service | holds client WebSocket connections, fanout via Redis pub/sub, routes opponent progress via a topic-per-match STOMP subscription | Redis (pub/sub relay channel) |
 | Leaderboard Service | consumes match-completed events off RabbitMQ, maintains ranked leaderboard | Redis (sorted set) |
+| Practice Intelligence Service | durable practice attempts/progress, recommendation projection, embeddings, asynchronous coaching explanations | Postgres `practice` schema with pgvector; Redis recommendation cache |
 
-Gateway, Auth, User/Profile, Problem, Submission, Judge Dispatcher/Executor, Matchmaking, Duel Service, WS Gateway, and Leaderboard are implemented (Phases 0-6).
+Gateway, Auth, User/Profile, Problem, Submission, Judge Dispatcher/Executor, Matchmaking, Duel Service, WS Gateway, Leaderboard, and Practice Intelligence are implemented (Phases 0-7).
 
 ## Async backbone (Kafka dropped as overkill for this project's actual scale)
 
 - **RabbitMQ** — does everything async: judge job queue (task-queue semantics, worker pool consumes), matchmaking join-request queue, and match event fanout via a topic exchange (multiple bound queues: Duel Service, WS Gateway, and Leaderboard Service each get `match.created` / `match.completed` / `duel.progress`; User/Profile Service binds only `match.completed`, to apply the ELO delta and duel counters).
 - **Redis** — matching index (sorted set by ELO), leaderboard (sorted set), WS session/connection registry + pub/sub for cross-instance fanout, general cache (hot problem statements, user profiles), and the API Gateway's rate-limit token buckets (implemented).
 - Explicit trade-off accepted: no Kafka means no durable event replay / long retention / event-sourcing story. Fine at this scale — the two remaining tools (RabbitMQ, Redis) each still have a genuine, explainable reason for being there, which was the actual goal (demonstrating *when/why* to reach for a tool, not raw scale).
+- Practice completion uses a dedicated `practice.submission.completed` topic route. Submission Service writes it to its transactional outbox in the same transaction as the terminal judged row. Practice Intelligence consumes it idempotently by `submission_id`, updates Postgres progress, invalidates its Redis recommendation key, and queues coaching. The shared `submission.judged` event remains focused on verdicts and duel progress, avoiding accidental source-code fanout to unrelated consumers.
 - **Transactional outbox for DB-triggered publishes (implemented).** Auth Service's signup writes an `auth.outbox_events` row in the *same* transaction as the `auth.users` insert, rather than publishing to RabbitMQ from an `AFTER_COMMIT` listener. A separate poller (`OutboxRelay`, ~2s interval) relays unpublished rows and marks them sent. This closes the crash window an `AFTER_COMMIT` listener leaves open — a process crash between commit and listener execution used to lose the event permanently; now it's just an unpublished row waiting for the next poll, nothing is ever silently dropped. Trade-off: polling adds a few seconds of latency and repeated (cheap, indexed) queries versus CDC/Debezium reading the DB's write-ahead log directly (near-zero latency, no poll cost) — but CDC means running Kafka Connect or a Debezium server, reintroducing the Kafka-adjacent infra this project already decided against. Revisit if latency ever actually matters here; it doesn't yet. Any future service writing to a queue on the back of a DB transaction should use the same pattern, not the `AFTER_COMMIT` shortcut.
 
 ## Data strategy
@@ -42,6 +44,8 @@ Polyglot, database-per-service where it matters:
 - **Postgres** — core relational/transactional entities: users, problems + test cases, matches, ELO history. ACID needed.
 - **Postgres JSONB** — variable-shape submission execution results (per-test-case output/logs) stored with Submission Service's relational submission record. MongoDB was evaluated and dropped to avoid a second durable database for data that already has a stable relational owner.
 - **Redis** — ephemeral/hot state only (matching queue, leaderboard, WS sessions, cache, rate-limit buckets). Not source of truth for anything durable.
+- **pgvector** — an extension inside the Practice schema, not a new database. Problem metadata is projected from Problem Service; vector similarity is an indexable retrieval signal, while Postgres remains the durable source of truth. If the embedding provider is unavailable, tag/difficulty recommendations still work.
+- **NVIDIA AI** — the integration API supplies `nvidia/nemotron-3-embed-1b` passage/query embeddings and `nvidia/nemotron-3-super-120b-a12b` coaching JSON. The API key is namespace-scoped runtime secret material only; prompts exclude hidden expected/actual output. Hint generation is asynchronous and retryable, while full walkthroughs require an explicit user action.
 
 ## Code execution / judging (implemented)
 
@@ -91,7 +95,17 @@ Spring Cloud Gateway in front of everything: JWT validation, routing, rate limit
 
 Rate limiting is a token bucket, not a fixed window: bucket state (tokens + last-refill timestamp) lives in one Redis Hash key per client, refilled/consumed by a single atomic Lua `EVAL` (`scripts/token_bucket.lua`). Single-key-per-client makes this safe on a real Redis Cluster with no code changes (no CROSSSLOT risk from multi-key scripts), and the atomic EVAL removes the check-then-act race a plain GET/SET or INCR/EXPIRE pair would have under concurrent requests.
 
-## Observability (v1 scope, planned Phase 7)
+## Intelligent practice loop (implemented, Phase 7)
+
+Practice progress is owned by Practice Intelligence, not User Service or Problem Service. Every terminal practice submission is recorded in `practice.attempts`; `practice.progress.solved` changes from false to true only when an attempt is `ACCEPTED` and is never unset. The composite `(user_id, problem_id)` key makes progress upserts atomic, while `submission_id` is the idempotency key for RabbitMQ redelivery. Failed attempts feed weak-topic counts from the projected problem tags.
+
+Recommendations combine 50% embedding similarity, 30% weak-tag overlap, 15% difficulty fit, and 5% novelty, with a stable problem-ID tie break. Cold-start users receive deterministic easy problems. Redis caches the result for ten minutes and is invalidated after a new attempt; cache loss only causes a recomputation, never data loss. This deliberately avoids a recommendation-specific database or a cross-service join.
+
+The Problem Service exposes a bounded internal catalog projection containing title, description, difficulty, and tags, but never hidden tests or reference solutions. `scripts/import-leetcode-dataset.ps1` reads the compressed `v0.3.1` JSONL artifact at a pinned upstream commit, converts supported Python function harnesses into LeetDuel's JSON test format, preserves `newfacade/LeetCodeDataset@v0.3.1` source IDs for retries, keeps the first two valid cases as samples, and writes a rejection report for incompatible records. Upstream content terms still need review before public redistribution.
+
+After a judged practice event, the service stores a short-lived explanation job and calls NVIDIA outside the database transaction. The provider response is validated as structured JSON before it is rendered. A concise hint is attempted automatically; the full walkthrough is generated only after the user asks for it. Provider errors move the job to a bounded retryable/failed state without changing the verdict or progress. Practice WebSocket events are notifications only; `GET /practice/explanations/{submissionId}` is authoritative after reconnects or missed Redis Pub/Sub messages.
+
+## Observability (v1 scope, planned Phase 8)
 
 Prometheus + Grafana only for v1 (Spring Boot Actuator + Micrometer exposing `/actuator/prometheus`, scraped via kube-prometheus-stack). Distributed tracing (OpenTelemetry/Jaeger), centralized logging (ELK/Loki), and Resilience4j circuit breakers/rate limiting are explicitly deferred to a later phase — not v1 scope, called out here so it isn't forgotten, but v1 should not creep into building them.
 
@@ -116,4 +130,5 @@ These get resolved incrementally as each phase is implemented, not up front. (Ma
 4. **Leaderboard + profile/stats — done.** Leaderboard Service consumes `match.completed` into Redis global/weekly/season sorted-set projections with Lua-backed idempotency for additive period scores; User Service stores transactional ELO history; Duel Service exposes paginated match history; frontend exposes public `/leaderboard` and authenticated `/profile` views.
 5. **Ship-ready frontend — done.** Monaco editor with per-language draft preservation; responsive shared navigation; accessible loading, empty, error, retry, and 404 states; public username and problem-summary batch reads; frontend component tests; and desktop/mobile browser acceptance checks.
 6. **Kubernetes deployment — done.** One Helm chart, pinned stateful dependencies with PVCs, same-origin Ingress, externalized service DNS, probes, HPAs, Minikube scripts, and Kubernetes-native Judge Dispatcher/Executor Jobs. Docker Compose remains the local development profile.
-7. Observability: Prometheus + Grafana dashboards (service health, queue depth, judge latency, match wait time, per-service request rate/latency/error rate).
+7. **Intelligent practice loop — done.** Practice Intelligence, solved history, pgvector embeddings, recommendation scoring, dataset importer, sanitized async NVIDIA hints/walkthroughs, REST recovery, and user-scoped Practice WebSocket notifications.
+8. Observability: Prometheus + Grafana dashboards (service health, queue depth, judge latency, match wait time, per-service request rate/latency/error rate).

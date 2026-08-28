@@ -20,6 +20,10 @@ public record InternalProblemDetailResponse(
     public record ParameterResponse(String name, String type) {
     }
 
-    public record TestCaseResponse(int ordinal, String input, String expectedOutput) {
+    public record TestCaseResponse(int ordinal, String input, String expectedOutput, boolean sample) {
+
+        public TestCaseResponse(int ordinal, String input, String expectedOutput) {
+            this(ordinal, input, expectedOutput, false);
+        }
     }
 }

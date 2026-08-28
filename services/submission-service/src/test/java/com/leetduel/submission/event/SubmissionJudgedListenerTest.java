@@ -71,6 +71,20 @@ class SubmissionJudgedListenerTest {
     }
 
     @Test
+    void onSubmissionJudged_redactsHiddenExpectedAndActualOutput() {
+        UUID submissionId = UUID.randomUUID();
+        Submission submission = pendingSubmission(submissionId);
+        when(submissionRepository.findById(submissionId)).thenReturn(Optional.of(submission));
+        SubmissionJudgedEvent event = new SubmissionJudgedEvent(submissionId, null, null, "WRONG_ANSWER", 1, 2, List.of(
+                new SubmissionJudgedEvent.TestCaseResultPayload(0, "WRONG_ANSWER", 8L, "public", "public-actual", true),
+                new SubmissionJudgedEvent.TestCaseResultPayload(1, "WRONG_ANSWER", 9L, "hidden-answer", "hidden-actual", false)));
+
+        listener.onSubmissionJudged(event);
+
+        assertThat(submission.getTestResults()).contains("public").doesNotContain("hidden-answer").doesNotContain("hidden-actual");
+    }
+
+    @Test
     void onSubmissionJudged_skipsUpdate_whenAlreadyJudged() {
         // Arrange - simulates redelivery of the same event, or a re-run
         // sandbox republishing the same result (Judge Worker is stateless).

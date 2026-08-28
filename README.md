@@ -155,7 +155,16 @@ This lets two players connected to different WS Gateway instances receive the sa
 docker compose -f docker-compose.infra.yml up -d
 ```
 
-This starts PostgreSQL, Redis, RabbitMQ, pgAdmin, RedisInsight, RabbitMQ management, Judge Worker, Duel Service, WS Gateway, and Leaderboard Service. MongoDB is not part of the stack.
+This starts pgvector-enabled PostgreSQL, Redis, RabbitMQ, pgAdmin, RedisInsight, RabbitMQ management, Judge Worker, Duel Service, WS Gateway, Leaderboard Service, and Practice Intelligence. MongoDB is not part of the stack.
+
+After starting the local Spring services, enable the optional practice AI without putting the key in source control:
+
+```powershell
+./scripts/use-nvidia-key.ps1
+docker compose --env-file deploy/.env.runtime -f docker-compose.infra.yml up -d --build
+./scripts/import-leetcode-dataset.ps1 -Ref v0.3.1
+./scripts/backfill-practice-embeddings.ps1
+```
 
 ### 2. Build sandbox images
 
@@ -233,9 +242,11 @@ npm test -- --run
 npm run build
 ```
 
-Phase 5 evidence: the frontend gate passes with 10 Vitest tests, lint, typecheck, and an offline production build. `agent-browser` checks at desktop and mobile widths covered the landing page, responsive navigation, protected-page redirects, branded 404, screenshots, keyboard-visible focus, and zero console errors. Backend controller contract tests cover the bounded identity and problem-summary response shapes and request limits.
+Frontend evidence: the gate passes with 12 Vitest tests, lint, typecheck, and an offline production build. `agent-browser` checks at desktop and mobile widths covered the landing page, responsive navigation, protected-page redirects, branded 404, screenshots, keyboard-visible focus, and zero console errors. Backend controller contract tests cover the bounded identity and problem-summary response shapes and request limits.
 
 Phase 6 evidence: `helm dependency build`, `helm lint`, and `helm template` pass for the platform chart. Judge unit tests cover deterministic Job input/security configuration, framed result parsing, sandbox orchestration, timeouts, and terminal duplicate safety. Full Minikube acceptance requires a running Docker daemon; the scripts above are the reproducible acceptance path.
+
+Phase 7 evidence: practice progress and recommendations now use a durable Practice Intelligence schema. `practice.submission.completed` is an additive, practice-only event, so source code and coaching context never enter the shared duel event. Problem metadata is projected through an internal catalog endpoint, embeddings are stored in pgvector, and recommendation reads use Redis as a ten-minute cache with deterministic tag/difficulty fallback when NVIDIA is unavailable. The practice page shows attempted/solved state, recommendations, sample-safe results, asynchronous hints, and on-demand walkthroughs. Run `scripts/import-leetcode-dataset.ps1 -Ref v0.3.1`, which reads the pinned compressed JSONL artifact and records incompatible Python harnesses in a rejection report, then run `scripts/backfill-practice-embeddings.ps1` after configuring the ignored runtime NVIDIA key.
 
 Backend checks can be run per service:
 
@@ -255,6 +266,7 @@ The most valuable integration checks use Testcontainers for Redis Lua-script con
 - Phase 4: leaderboard, profile stats, ELO history, and match history complete.
 - Phase 5: ship-ready frontend, Monaco editor, identity enrichment, responsive navigation, and UI tests complete.
 - Phase 6: Minikube/Helm deployment, Kubernetes-native judge Jobs, executor isolation, probes, PVCs, Ingress, and HPAs complete.
+- Phase 7: Practice Intelligence, durable solved history, pgvector embeddings, recommendations, sanitized async AI coaching, dataset import, and Practice WebSocket notifications complete.
 - Next: Prometheus/Grafana observability, then CI/CD and production hardening.
 
 For the deeper design rationale and learning path, see [`docs/goals.md`](docs/goals.md) and [`docs/LEARN_AND_BUILD.md`](docs/LEARN_AND_BUILD.md).
