@@ -1,36 +1,34 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# LeetDuel frontend
 
-## Getting Started
+The frontend is a Next.js 16 application for the LeetDuel practice and real-time match product. It is intentionally kept as a separate deployable image from the Spring services so the UI can scale and release independently from API workloads.
 
-First, run the development server:
+## Local development
+
+From this directory:
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The default development server runs at `http://localhost:3000`. Local API defaults point at Auth Service on `:8082`, API Gateway on `:8084`, and WS Gateway on `:8090`. Production builds use same-origin `/api` and derive the WebSocket endpoint from the browser host; explicit environment overrides remain available for local port-based development.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Quality gates
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run lint
+npm run typecheck
+npm test -- --run
+npm run build
+```
 
-## Learn More
+Tests use Vitest, jsdom, React Testing Library, jest-dom, and user-event. The coverage focuses on user-visible states: loading, success, empty, partial data, retryable failure, authentication, language switching, and submission lockout.
 
-To learn more about Next.js, take a look at the following resources:
+## UI boundaries
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `app/` owns route-level screens and protected-page behavior.
+- `components/` contains reusable shell, editor, state, and product components.
+- `lib/` contains API clients, auth state, and browser transport helpers.
+- Monaco is loaded client-side because the editor depends on browser APIs and should not increase the server-rendered route payload.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The backend remains the source of truth for problems, submissions, matches, profiles, and recommendations. The frontend composes bounded API reads and treats WebSocket messages as notifications that can be recovered through REST.

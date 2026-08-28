@@ -111,7 +111,7 @@ Prometheus + Grafana only for v1 (Spring Boot Actuator + Micrometer exposing `/a
 
 ## Frontend
 
-Full React + TypeScript SPA: Monaco code editor, problem browser, matchmaking/queue screen, live duel view (WS-driven opponent progress bar), leaderboard, profile/stats/rating history, responsive navigation, accessible state handling, and deterministic Vitest/Testing Library coverage. Phase 5 verification includes 10 frontend tests, lint, typecheck, an offline production build, and desktop/mobile `agent-browser` acceptance checks. The product uses professional match/challenge copy while retaining duel terminology only for technical routes and service contracts.
+Full React + TypeScript SPA: Monaco code editor, problem browser, matchmaking/queue screen, live duel view (WS-driven opponent progress bar), leaderboard, profile/stats/rating history, responsive navigation, accessible state handling, and deterministic Vitest/Testing Library coverage. Phase 5 verification includes 12 frontend tests, lint, typecheck, an offline production build, and desktop/mobile `agent-browser` acceptance checks. The product uses professional match/challenge copy while retaining duel terminology only for technical routes and service contracts.
 
 ## Open questions / deferred decisions
 

@@ -144,7 +144,7 @@ Delivered:
 5. Problem Service exposes bounded authenticated `GET /problems/summaries?ids=...` reads so profile history can show problem titles without coupling Duel Service to Problem Service data.
 6. Leaderboard and profile pages enrich IDs with batch reads and use short-ID fallbacks when projections are temporarily unavailable.
 7. Vitest + jsdom + React Testing Library cover leaderboard loading/success/empty/error/partial-identity states, authentication success/failure, problem loading/retry/unauthorized states, language switching, and judging submission lockout. Controller contract tests cover the bounded identity and problem-summary response shapes and request limits. `agent-browser` acceptance checks cover desktop and mobile navigation, redirects, screenshots, visible focus, overflow, reduced motion, and console errors.
-8. **Verification evidence:** frontend lint, typecheck, 10 Vitest tests, and the offline production build pass locally. The browser pass confirmed the professional landing-page copy, responsive shell, mobile menu, protected redirects, branded 404, and no console errors.
+8. **Verification evidence:** frontend lint, typecheck, 12 Vitest tests, and the offline production build pass locally. The browser pass confirmed the professional landing-page copy, responsive shell, mobile menu, protected redirects, branded 404, and no console errors.
 9. **Demo checkpoint:** a user can sign in, browse a problem, edit a real Monaco buffer, switch languages without losing drafts, find a match, view public usernames on rankings, and inspect a readable profile history.
 
 ### Phase 6 — Kubernetes deployment (done)

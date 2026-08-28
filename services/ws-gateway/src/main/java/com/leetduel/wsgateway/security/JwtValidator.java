@@ -33,8 +33,12 @@ public class JwtValidator {
             Claims claims = Jwts.parser().verifyWith(signingKey).build()
                     .parseSignedClaims(token)
                     .getPayload();
+            String userId = claims.getSubject();
+            if (userId == null || userId.isBlank()) {
+                return Optional.empty();
+            }
             boolean emailVerified = Boolean.TRUE.equals(claims.get("emailVerified", Boolean.class));
-            return Optional.of(new ValidatedToken(claims.getSubject(), emailVerified));
+            return Optional.of(new ValidatedToken(userId, emailVerified));
         } catch (JwtException | IllegalArgumentException e) {
             return Optional.empty();
         }

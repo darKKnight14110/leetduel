@@ -68,6 +68,18 @@ class JwtValidatorTest {
         assertThat(jwtValidator.validate("not-a-real-jwt")).isEmpty();
     }
 
+    @Test
+    void validate_returnsEmpty_whenTokenHasNoSubject() {
+        SecretKey key = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
+        String token = Jwts.builder()
+                .claim("emailVerified", true)
+                .issuedAt(Date.from(Instant.now()))
+                .signWith(key)
+                .compact();
+
+        assertThat(jwtValidator.validate(token)).isEmpty();
+    }
+
     private String issue(UUID userId, boolean emailVerified) {
         return issue(SECRET, userId, emailVerified);
     }

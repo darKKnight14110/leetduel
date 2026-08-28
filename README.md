@@ -6,22 +6,25 @@ It is built as a backend-heavy systems project rather than a CRUD application wi
 
 ## Resume summary
 
-- Designed and implemented a Java 21 / Spring Boot microservices platform with ten independently deployable backend services and a Next.js frontend.
+- Designed and implemented a Java 21 / Spring Boot microservices platform with eleven independently deployable backend services and a Next.js frontend.
 - Built an asynchronous judge pipeline with RabbitMQ and deterministic Kubernetes Jobs for Python and Java submissions, including CPU, memory, timeout, deny-egress, non-root, and read-only filesystem controls; retained a Docker profile for local Compose.
 - Implemented horizontally safe ELO matchmaking with Redis sorted sets and atomic Lua scripts, plus optimistic-lock-guarded duel completion and transactional outbox publishing.
 - Implemented STOMP real-time duel updates through a standalone WebSocket gateway using RabbitMQ to Redis Pub/Sub to local broker fanout.
 - Added a Redis materialized leaderboard with global, weekly, and seasonal rankings, atomic period-score idempotency, rank lookup, and surrounding-player queries.
+- Added a Practice Intelligence service with durable solved history, pgvector embeddings, Redis-cached recommendations, and sanitized asynchronous NVIDIA coaching.
+- Added explicit HikariCP pool budgets and a reproducible capacity model instead of presenting unmeasured throughput as a benchmark.
 - Shipped a responsive Next.js product experience with Monaco editing, accessible state handling, public usernames, and deterministic frontend tests.
 
 ## Product flow
 
 1. A user signs up or logs in and receives a short-lived JWT plus a rotating refresh token.
 2. The user browses a problem and submits Python or Java code.
-3. Submission Service publishes a judge job. Judge Worker runs the code in an ephemeral sandbox and publishes the verdict asynchronously.
+3. Submission Service publishes a judge job. Judge Dispatcher creates an ephemeral Kubernetes Executor Job, which publishes the verdict asynchronously.
 4. For ranked play, two users join the matchmaking queue. Matchmaking pairs them by ELO using an expanding search window.
 5. Duel Service owns the match lifecycle. Each accepted submission updates progress, and the first player to solve all tests wins.
 6. `match.completed` is published once through the duel outbox. User Service applies ELO and W/L/D stats, while Leaderboard Service updates its Redis read model.
 7. The frontend receives live opponent progress and the final result over WebSocket.
+8. In practice mode, the terminal result updates solved history and recommendations; a separate asynchronous coaching flow renders a validated hint or walkthrough without exposing hidden tests or source code to shared duel consumers.
 
 ## Architecture
 
@@ -39,6 +42,7 @@ flowchart TB
     GW --> MATCH["Matchmaking Service"]
     GW --> DUEL["Duel Service"]
     GW --> LEAD["Leaderboard Service"]
+    GW --> PRACTICE["Practice Intelligence"]
 
     AUTH -->|"transactional outbox"| MQ[(RabbitMQ)]
     SUB -->|"judge job"| MQ
@@ -55,14 +59,26 @@ flowchart TB
     MQ --> WSG
     MQ --> USER
     MQ --> LEAD
+    MQ --> PRACTICE
     WSG -.->|"cross-instance Pub/Sub"| REDIS
 
     AUTH --> PG[(PostgreSQL)]
     USER --> PG
     PROB --> PG
     SUB -->|"metadata + JSONB results"| PG
+    PRACTICE -->|"attempts + embeddings"| PG
+    PRACTICE -.->|"recommendation cache"| REDIS
     DUEL --> PG
 ```
+
+## Repository map
+
+- `services/` contains independently deployable Spring services and their owned schemas.
+- `frontend/` contains the Next.js product shell, editor, API clients, and UI tests.
+- `deploy/` contains the Minikube/Helm platform chart and ignored local secret inputs.
+- `docker/` contains the pgvector PostgreSQL image; `docker-compose.infra.yml` is the local development profile.
+- `scripts/` contains repeatable bootstrap, dataset, embedding, reset, and capacity commands.
+- `docs/` contains architecture, performance assumptions, design rationale, and the learning path.
 
 ## Services
 
@@ -73,11 +89,12 @@ flowchart TB
 | User/Profile Service | ELO, match stats, rating history, public identity/profile reads | Spring Data JPA, PostgreSQL |
 | Problem Service | Problems, tags, difficulty, test cases, language stubs | Spring Data JPA, PostgreSQL |
 | Submission Service | Submission metadata, judge-job publication, verdict reads | Spring Data JPA, PostgreSQL JSONB |
-| Judge Worker | Dispatches deterministic Kubernetes Jobs and publishes verdicts; local Compose keeps the Docker profile | Spring AMQP, Fabric8, Docker Engine |
+| Judge Dispatcher / Executor | Dispatches deterministic Kubernetes Jobs and publishes verdicts; local Compose keeps the Docker profile | Spring AMQP, Fabric8, Java/Python sandbox |
 | Matchmaking Service | ELO queueing, expanding-window pairing, expiry | Redis sorted sets, Lua, RabbitMQ |
 | Duel Service | Match state, progress, timeout/winner resolution, ELO calculation | PostgreSQL, optimistic locking |
 | WS Gateway | Authenticated STOMP connections and horizontally scalable event fanout | WebSocket, RabbitMQ, Redis Pub/Sub |
 | Leaderboard Service | Global, weekly, seasonal ranked read model | Redis sorted sets, Lua, RabbitMQ |
+| Practice Intelligence | Solved history, recommendations, embeddings, and asynchronous coaching | PostgreSQL/pgvector, Redis, RabbitMQ, NVIDIA API |
 
 ## Design decisions worth discussing
 
@@ -119,6 +136,12 @@ The API Gateway is an HTTP-only hand-rolled WebFlux proxy, so WebSocket connecti
 
 This lets two players connected to different WS Gateway instances receive the same match updates. The REST match read remains the source of truth for initial state and reconnect recovery; WebSocket carries live deltas.
 
+### PostgreSQL connection pooling and capacity
+
+Spring Boot's JDBC/JPA starters already use HikariCP, so the project makes the pool policy explicit instead of adding a second pool implementation. The seven PostgreSQL-backed services default to eight connections per instance, one minimum idle connection, a two-second acquisition timeout, and bounded connection recycling. This prevents horizontal replica growth from silently opening an unbounded number of database sessions.
+
+The local planning envelope is 56 possible pooled connections plus a 12-connection admin/migration reserve under a 100-connection PostgreSQL budget. That is a capacity model, not a benchmark: query hold time, locks, WAL, disk latency, and database CPU determine the real throughput. Run `scripts/calculate-capacity.ps1` to recompute the model when replica counts, pool sizes, or judge slots change. The formulas and assumptions are documented in [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
+
 ## Security and reliability
 
 - JWT verification occurs at the API Gateway for HTTP and on the STOMP `CONNECT` frame for WebSocket.
@@ -133,7 +156,7 @@ This lets two players connected to different WS Gateway instances receive the sa
 | Layer | Technologies |
 |---|---|
 | Backend | Java 21, Spring Boot 4.1, Spring MVC/WebFlux, Spring Security |
-| Persistence | PostgreSQL, Spring Data JPA, Flyway, JSONB |
+| Persistence | PostgreSQL, Spring Data JPA, Flyway, JSONB, HikariCP, pgvector |
 | Messaging | RabbitMQ, transactional outbox, Jackson message conversion |
 | Hot state | Redis, sorted sets, Pub/Sub, atomic Lua scripts |
 | Code execution | Kubernetes Jobs, Fabric8, Python 3.12, Java 21; Docker profile for Compose |
@@ -248,6 +271,8 @@ Phase 6 evidence: `helm dependency build`, `helm lint`, and `helm template` pass
 
 Phase 7 evidence: practice progress and recommendations now use a durable Practice Intelligence schema. `practice.submission.completed` is an additive, practice-only event, so source code and coaching context never enter the shared duel event. Problem metadata is projected through an internal catalog endpoint, embeddings are stored in pgvector, and recommendation reads use Redis as a ten-minute cache with deterministic tag/difficulty fallback when NVIDIA is unavailable. The practice page shows attempted/solved state, recommendations, sample-safe results, asynchronous hints, and on-demand walkthroughs. Run `scripts/import-leetcode-dataset.ps1 -Ref v0.3.1`, which reads the pinned compressed JSONL artifact and records incompatible Python harnesses in a rejection report, then run `scripts/backfill-practice-embeddings.ps1` after configuring the ignored runtime NVIDIA key.
 
+Capacity evidence: `scripts/calculate-capacity.ps1` produces a repeatable planning envelope for database connection budget, judge throughput, burst drain time, Gateway request capacity, and WebSocket session targets. These are explicitly modeled assumptions rather than measured SLOs; Phase 8 adds the metrics and load harness needed to replace them with observed values.
+
 Backend checks can be run per service:
 
 ```bash
@@ -269,4 +294,4 @@ The most valuable integration checks use Testcontainers for Redis Lua-script con
 - Phase 7: Practice Intelligence, durable solved history, pgvector embeddings, recommendations, sanitized async AI coaching, dataset import, and Practice WebSocket notifications complete.
 - Next: Prometheus/Grafana observability, then CI/CD and production hardening.
 
-For the deeper design rationale and learning path, see [`docs/goals.md`](docs/goals.md) and [`docs/LEARN_AND_BUILD.md`](docs/LEARN_AND_BUILD.md).
+For the deeper design rationale and learning path, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md), [`docs/goals.md`](docs/goals.md), and [`docs/LEARN_AND_BUILD.md`](docs/LEARN_AND_BUILD.md).
