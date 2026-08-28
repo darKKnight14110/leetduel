@@ -1,7 +1,7 @@
 package com.leetduel.judge.runner;
 
 import com.leetduel.judge.job.JudgeJobCreatedEvent;
-import com.leetduel.judge.sandbox.DockerSandboxService;
+import com.leetduel.judge.sandbox.SandboxSession;
 
 // One implementation per supported v1 language (PythonRunner, JavaRunner).
 // The extensibility seam for future languages - adding one means a new
@@ -13,8 +13,7 @@ public interface LanguageRunner {
 
     // Writes the submitted source (+ any generated harness code) into the
     // already-running sandbox container and compiles/syntax-checks it.
-    CompileResult compile(DockerSandboxService sandbox, String containerId, JudgeJobCreatedEvent job);
+    CompileResult compile(SandboxSession sandbox, JudgeJobCreatedEvent job);
 
-    TestCaseOutcome runTestCase(DockerSandboxService sandbox, String containerId,
-            JudgeJobCreatedEvent.TestCasePayload testCase, int timeLimitMs);
+    TestCaseOutcome runTestCase(SandboxSession sandbox, JudgeJobCreatedEvent.TestCasePayload testCase, int timeLimitMs);
 }

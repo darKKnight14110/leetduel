@@ -1,0 +1,23 @@
+FROM eclipse-temurin:21-jdk-jammy AS builder
+WORKDIR /workspace
+COPY gradlew gradlew.bat settings.gradle build.gradle gradle.properties ./
+COPY gradle ./gradle
+RUN ./gradlew --version
+COPY src ./src
+RUN ./gradlew bootJar --no-daemon -x test
+
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y ca-certificates coreutils openjdk-21-jdk-headless python3.12 passwd \
+    && ln -s /usr/bin/python3.12 /usr/local/bin/python \
+    && groupadd --gid 10001 judge \
+    && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin judge \
+    && mkdir -p /app /config /sandbox /tmp /opt/judge-libs \
+    && chown -R judge:judge /app /config /sandbox /tmp \
+    && rm -rf /var/lib/apt/lists/*
+ADD https://repo1.maven.org/maven2/org/json/json/20251224/json-20251224.jar /opt/judge-libs/json.jar
+COPY --from=builder /workspace/build/libs/*.jar /app/app.jar
+WORKDIR /app
+USER judge
+ENTRYPOINT ["java", "-jar", "app.jar"]

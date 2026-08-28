@@ -1,0 +1,16 @@
+apiVersion: v2
+name: leetduel
+description: LeetDuel local Kubernetes platform chart
+type: application
+version: 0.1.0
+appVersion: "phase6"
+dependencies:
+  - name: postgresql
+    version: 18.8.13
+    repository: https://charts.bitnami.com/bitnami
+  - name: redis
+    version: 28.0.12
+    repository: https://charts.bitnami.com/bitnami
+  - name: rabbitmq
+    version: 16.0.14
+    repository: https://charts.bitnami.com/bitnami

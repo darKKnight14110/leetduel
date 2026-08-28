@@ -2,7 +2,7 @@
 
 Target: backend-heavy systems project demonstrating full system-design-primer coverage for top systems/backend engineering roles.
 
-Status: Phase 0 (foundations), Phase 1 (core judge loop), Phase 2 (ELO + matchmaking), Phase 3 (real-time duel), Phase 4 (leaderboard + profile/stats), and Phase 5 (ship-ready frontend) are implemented. See "Implementation phases" below for the full breakdown.
+Status: Phases 0-5 and Phase 6 (Minikube/Helm deployment) are implemented. See "Implementation phases" below for the full breakdown.
 
 ## Pitch
 
@@ -21,13 +21,13 @@ Full platform, built in phases. Each phase independently demoable and resume-wor
 | User/Profile Service | profile, public username projection, ELO + external ratings + match stats; consumes `match.completed` to apply ELO delta and update W/L/D counters (sole writer of ELO) | Postgres |
 | Problem Service | problem CRUD, test cases, tags/difficulty | Postgres |
 | Submission Service | accepts code, publishes judge job | Postgres (metadata) |
-| Judge Worker (pool) | consumes RabbitMQ job, spins Docker sandbox, runs code vs test cases, scores, emits result | Stateless; result is persisted by Submission Service |
+| Judge Dispatcher / Executor | Dispatcher consumes RabbitMQ jobs and owns Kubernetes Job lifecycle; one non-networked Executor Job runs code and emits a framed result | Dispatcher is stateless; result is persisted by Submission Service |
 | Matchmaking Service | RabbitMQ join queue in, Redis sorted-set expanding-window ELO pairing | Redis (matching index) |
 | Duel Service | owns live match lifecycle, both players' progress, decides winner, computes ELO delta (has both ratings from match creation, no cross-service lookup needed) | Postgres (match record) |
 | WS Gateway Service | holds client WebSocket connections, fanout via Redis pub/sub, routes opponent progress via a topic-per-match STOMP subscription | Redis (pub/sub relay channel) |
 | Leaderboard Service | consumes match-completed events off RabbitMQ, maintains ranked leaderboard | Redis (sorted set) |
 
-Gateway, Auth, User/Profile, Problem, Submission, Judge Worker, Matchmaking, Duel Service, WS Gateway, and Leaderboard are implemented (Phases 0-4).
+Gateway, Auth, User/Profile, Problem, Submission, Judge Dispatcher/Executor, Matchmaking, Duel Service, WS Gateway, and Leaderboard are implemented (Phases 0-6).
 
 ## Async backbone (Kafka dropped as overkill for this project's actual scale)
 
@@ -45,7 +45,7 @@ Polyglot, database-per-service where it matters:
 
 ## Code execution / judging (implemented)
 
-Docker sandbox workers: isolated containers per submission, resource-limited (CPU/mem/time), pulled from RabbitMQ job queue by a worker pool. Real isolation/security story (container escape prevention, resource limits, timeout kill) — not a subprocess/ulimit shortcut. Sandbox images run non-root, network-disabled, read-only root filesystem; Python 3.12 and Java 21 (JDK) runtimes exist today (`docker/sandbox-python`, `docker/sandbox-java`).
+The local Compose profile keeps isolated Docker sandbox workers per submission, resource-limited (CPU/mem/time), pulled from RabbitMQ by a worker pool. The Phase 6 Kubernetes profile replaces the host Docker socket with one short-lived Job per submission: the Dispatcher owns Kubernetes access, while a non-root Executor runs local Python/Java processes inside a resource-limited, deny-egress Pod. Both profiles preserve the same RabbitMQ event shapes and terminal result semantics; Docker images remain useful for fast local development, while Kubernetes is the safer deployment story.
 
 ## Real-time transport (implemented)
 
@@ -73,9 +73,17 @@ Expanding-window ELO matching (like chess.com/League):
    - Opponent's ELO-at-match-time (not their live post-match ELO) is what Profile Service sums into `sum_opp_elo_won/lost/drawn` — using live ELO would make the aggregate depend on when it's read, not what actually happened in that match.
    - Applying an ELO delta is not naturally idempotent (unlike, say, the outbox's `published_at IS NULL` check), so User Service guards against RabbitMQ's at-least-once redelivery with an explicit `profile.processed_match_completions(match_id)` dedup table, checked and written in the same transaction as the delta application.
 
-## Deployment (planned, Phase 6)
+## Deployment (implemented, Phase 6)
 
-Kubernetes. Real manifests/Helm charts, k8s-native service discovery (no separate Eureka layer — redundant once on k8s), HPA autoscaling, rolling deploys. Local dev via kind/minikube or Docker Desktop's k8s, portable to any cloud. Local pre-k8s dev runs on `docker-compose.infra.yml` (implemented).
+The platform deploys through one Helm chart at `deploy/helm/leetduel`. PostgreSQL, Redis, and RabbitMQ are pinned Bitnami dependencies with PVCs enabled by default. Application Services use Kubernetes DNS, startup/readiness/liveness probes, and `IfNotPresent` local images. NGINX Ingress exposes one Minikube hostname: `/` reaches Next.js, `/api/*` rewrites to the Gateway's existing paths, and `/ws` reaches the standalone STOMP gateway with long proxy timeouts. Gateway and Judge Dispatcher use standard CPU HPAs from 1 to 3 replicas at 70% utilization.
+
+The supported local lifecycle is `scripts/bootstrap-minikube.ps1`, `scripts/build-minikube-images.ps1`, `scripts/deploy-minikube.ps1`, and the explicit destructive `scripts/reset-minikube-data.ps1`. Bootstrap selects Calico because the executor's deny-egress NetworkPolicy needs a network-policy-capable CNI. Secrets come from ignored `deploy/.env.k8s.local` and are materialized as the namespace-scoped `leetduel-secrets` Secret; no production-like credential is committed.
+
+### Kubernetes-native judging
+
+RabbitMQ remains the at-least-once async backbone. The Dispatcher acknowledges `judge.job.created` only after it has created or found `judge-<submissionId>` and its immutable `judge-input-<submissionId>` ConfigMap. Deterministic naming makes redelivery a reuse operation rather than a second execution. On startup and on a schedule, the Dispatcher finds completed Jobs, reads the last `LEETDUEL_RESULT:<json>` frame from Pod logs, publishes `submission.judged`, and deletes the Job and ConfigMap only after publication. A crash before publication leaves the completed Job for reconciliation; a crash after publication can duplicate the event, and Submission Service's terminal-status guard makes that harmless.
+
+The Executor has no RabbitMQ credentials, Kubernetes token, or outbound network access. It reads the existing `JudgeJobCreatedEvent` from a read-only ConfigMap, runs exactly one submission with local Python/Java processes, and writes exactly one framed result. The Pod uses non-root execution, dropped capabilities, `allowPrivilegeEscalation=false`, read-only root filesystem, `RuntimeDefault` seccomp, writable `/tmp` and `/sandbox` `emptyDir` mounts, CPU/memory limits, `backoffLimit: 0`, and an active deadline. This accepts Kubernetes Job cold-start latency and local Minikube limits in exchange for removing Judge Worker's host Docker socket; Kafka replay, KEDA, TLS, CI/CD, and production multi-tenant hardening remain deferred.
 
 ## Auth / Gateway (implemented)
 
@@ -96,8 +104,7 @@ Full React + TypeScript SPA: Monaco code editor, problem browser, matchmaking/qu
 - Historical leaderboard rebuild/replay strategy if Redis state is lost (the current leaderboard is a derived materialized view)
 - Judge sandbox anti-cheat considerations (plagiarism detection is explicitly out of v1 scope unless revisited)
 - Broader CI/CD coverage and contract-test automation beyond the Phase 5 frontend/API checks
-- CI/CD pipeline
-- Exact k8s manifest/Helm chart layout
+- Production Kubernetes hardening and remote-registry policy
 These get resolved incrementally as each phase is implemented, not up front. (Matchmaking join-request expiry is resolved as of Phase 2; Duel/Match's schema, WS auth, and cross-instance fanout are resolved as of Phase 3 — see "Live duel flow" and "Real-time transport" above.)
 
 ## Implementation phases
@@ -108,5 +115,5 @@ These get resolved incrementally as each phase is implemented, not up front. (Ma
 3. **Real-time duel — done.** Duel Service (match lifecycle, optimistic-lock-guarded win/timeout logic, ELO calculator, transactional-outbox `duel.progress`/`match.completed` publish), WS Gateway (STOMP over WebSocket, JWT-on-CONNECT auth, RabbitMQ → Redis Pub/Sub → local `SimpleBroker` fanout), `matchId`/`userId` threaded through Submission Service and Judge Worker, User Service's `match.completed` consumer (sole ELO writer, idempotency-guarded), live duel frontend page.
 4. **Leaderboard + profile/stats — done.** Leaderboard Service consumes `match.completed` into Redis global/weekly/season sorted-set projections with Lua-backed idempotency for additive period scores; User Service stores transactional ELO history; Duel Service exposes paginated match history; frontend exposes public `/leaderboard` and authenticated `/profile` views.
 5. **Ship-ready frontend — done.** Monaco editor with per-language draft preservation; responsive shared navigation; accessible loading, empty, error, retry, and 404 states; public username and problem-summary batch reads; frontend component tests; and desktop/mobile browser acceptance checks.
-6. Kubernetes deployment: Helm charts, HPA, migrate from docker-compose to k8s.
+6. **Kubernetes deployment — done.** One Helm chart, pinned stateful dependencies with PVCs, same-origin Ingress, externalized service DNS, probes, HPAs, Minikube scripts, and Kubernetes-native Judge Dispatcher/Executor Jobs. Docker Compose remains the local development profile.
 7. Observability: Prometheus + Grafana dashboards (service health, queue depth, judge latency, match wait time, per-service request rate/latency/error rate).

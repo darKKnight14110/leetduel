@@ -10,6 +10,7 @@ import com.github.dockerjava.api.model.HostConfig;
 import com.github.dockerjava.api.model.StreamType;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
@@ -29,6 +30,7 @@ import java.util.concurrent.TimeUnit;
 // against it rather than one container per test case.
 @Slf4j
 @Service
+@Profile("docker")
 public class DockerSandboxService {
 
     private static final int WRITE_FILE_TIMEOUT_MS = 5000;
@@ -83,6 +85,26 @@ public class DockerSandboxService {
                 .exec();
         dockerClient.startContainerCmd(response.getId()).exec();
         return response.getId();
+    }
+
+    public SandboxSession open(String image) {
+        String containerId = createContainer(image);
+        return new SandboxSession() {
+            @Override
+            public void copyFiles(Map<String, String> filenameToContent) {
+                DockerSandboxService.this.copyFiles(containerId, filenameToContent);
+            }
+
+            @Override
+            public ExecResult exec(List<String> command, int timeLimitMs) {
+                return DockerSandboxService.this.exec(containerId, command, timeLimitMs);
+            }
+
+            @Override
+            public void close() {
+                removeContainer(containerId);
+            }
+        };
     }
 
     public void copyFiles(String containerId, Map<String, String> filenameToContent) {

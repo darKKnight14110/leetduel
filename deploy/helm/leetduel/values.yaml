@@ -1,0 +1,236 @@
+global:
+  secretName: leetduel-secrets
+  ingress:
+    enabled: true
+    className: nginx
+    host: leetduel.local
+    scheme: http
+
+images:
+  registry: ""
+  tag: dev
+  pullPolicy: IfNotPresent
+
+postgresql:
+  fullnameOverride: postgresql
+  auth:
+    username: leetduel
+    database: leetduel
+    existingSecret: leetduel-secrets
+    secretKeys:
+      adminPasswordKey: postgres-password
+      userPasswordKey: password
+  primary:
+    persistence:
+      enabled: true
+      size: 2Gi
+
+redis:
+  fullnameOverride: redis
+  architecture: standalone
+  auth:
+    enabled: true
+    existingSecret: leetduel-secrets
+    existingSecretPasswordKey: redis-password
+  master:
+    persistence:
+      enabled: true
+      size: 1Gi
+
+rabbitmq:
+  fullnameOverride: rabbitmq
+  auth:
+    username: leetduel
+    existingPasswordSecret: leetduel-secrets
+    existingSecretPasswordKey: rabbitmq-password
+  persistence:
+    enabled: true
+    size: 2Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70
+
+apps:
+  frontend:
+    name: frontend
+    image: leetduel-frontend
+    port: 3000
+    frontend: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 300m
+        memory: 256Mi
+    env: []
+  auth:
+    name: auth-service
+    image: leetduel-auth
+    port: 8082
+    database: true
+    rabbit: true
+    jwt: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 384Mi
+      limits:
+        cpu: 500m
+        memory: 768Mi
+    env: []
+  user:
+    name: user-service
+    image: leetduel-user
+    port: 8083
+    database: true
+    rabbit: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 384Mi
+      limits:
+        cpu: 500m
+        memory: 768Mi
+    env: []
+  gateway:
+    name: gateway
+    image: leetduel-gateway
+    port: 8084
+    redis: true
+    jwt: true
+    autoscaling: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 384Mi
+      limits:
+        cpu: 500m
+        memory: 768Mi
+    env:
+      - name: LEETDUEL_AUTH_URI
+        value: http://auth-service:8082
+      - name: LEETDUEL_USER_URI
+        value: http://user-service:8083
+      - name: LEETDUEL_PROBLEM_URI
+        value: http://problem-service:8085
+      - name: LEETDUEL_SUBMISSION_URI
+        value: http://submission-service:8086
+      - name: LEETDUEL_MATCHMAKING_URI
+        value: http://matchmaking-service:8088
+      - name: LEETDUEL_DUEL_URI
+        value: http://duel-service:8089
+      - name: LEETDUEL_LEADERBOARD_URI
+        value: http://leaderboard-service:8091
+  problem:
+    name: problem-service
+    image: leetduel-problem
+    port: 8085
+    database: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 384Mi
+      limits:
+        cpu: 500m
+        memory: 768Mi
+    env: []
+  submission:
+    name: submission-service
+    image: leetduel-submission
+    port: 8086
+    database: true
+    rabbit: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 384Mi
+      limits:
+        cpu: 500m
+        memory: 768Mi
+    env:
+      - name: PROBLEM_SERVICE_BASE_URL
+        value: http://problem-service:8085
+  judge:
+    name: judge-dispatcher
+    image: leetduel-judge-dispatcher
+    port: 8087
+    rabbit: true
+    dispatcher: true
+    autoscaling: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 384Mi
+      limits:
+        cpu: 500m
+        memory: 768Mi
+    env:
+      - name: SPRING_PROFILES_ACTIVE
+        value: dispatcher
+      - name: JUDGE_EXECUTOR_IMAGE
+        value: leetduel-judge-executor:dev
+  matchmaking:
+    name: matchmaking-service
+    image: leetduel-matchmaking
+    port: 8088
+    database: true
+    rabbit: true
+    redis: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 384Mi
+      limits:
+        cpu: 500m
+        memory: 768Mi
+    env:
+      - name: USER_SERVICE_BASE_URL
+        value: http://user-service:8083
+      - name: PROBLEM_SERVICE_BASE_URL
+        value: http://problem-service:8085
+  duel:
+    name: duel-service
+    image: leetduel-duel
+    port: 8089
+    database: true
+    rabbit: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 384Mi
+      limits:
+        cpu: 500m
+        memory: 768Mi
+    env: []
+  ws:
+    name: ws-gateway
+    image: leetduel-ws-gateway
+    port: 8090
+    rabbit: true
+    redis: true
+    jwt: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 384Mi
+      limits:
+        cpu: 500m
+        memory: 768Mi
+    env: []
+  leaderboard:
+    name: leaderboard-service
+    image: leetduel-leaderboard
+    port: 8091
+    redis: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 384Mi
+      limits:
+        cpu: 500m
+        memory: 768Mi
+    env: []

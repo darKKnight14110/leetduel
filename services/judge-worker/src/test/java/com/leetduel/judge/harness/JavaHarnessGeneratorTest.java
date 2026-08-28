@@ -34,7 +34,7 @@ class JavaHarnessGeneratorTest {
     @Test
     void generatesWorkingHarness_forIntArrayAndIntParams_returningIntArray() throws Exception {
         JudgeJobCreatedEvent job = new JudgeJobCreatedEvent(
-                java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), java.util.UUID.randomUUID(),
+                java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), null,
                 "JAVA",
                 "class Solution {\n"
                         + "    public int[] twoSum(int[] nums, int target) {\n"
@@ -59,7 +59,7 @@ class JavaHarnessGeneratorTest {
     @Test
     void generatesWorkingHarness_forStringParam_returningBoolean() throws Exception {
         JudgeJobCreatedEvent job = new JudgeJobCreatedEvent(
-                java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), java.util.UUID.randomUUID(),
+                java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), null,
                 "JAVA",
                 "class Solution {\n"
                         + "    public boolean isPalindrome(String s) {\n"
@@ -82,7 +82,7 @@ class JavaHarnessGeneratorTest {
     @Test
     void generatesWorkingHarness_forTwoArrayParams_withoutVariableNameCollision() throws Exception {
         JudgeJobCreatedEvent job = new JudgeJobCreatedEvent(
-                java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), java.util.UUID.randomUUID(),
+                java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), null,
                 "JAVA",
                 "class Solution {\n"
                         + "    public int[] concat(int[] a, int[] b) {\n"
@@ -105,7 +105,7 @@ class JavaHarnessGeneratorTest {
     @Test
     void generatesWorkingHarness_for2DIntArrayParam_returningInt() throws Exception {
         JudgeJobCreatedEvent job = new JudgeJobCreatedEvent(
-                java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), java.util.UUID.randomUUID(),
+                java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), null,
                 "JAVA",
                 "class Solution {\n"
                         + "    public int sumAll(int[][] matrix) {\n"
@@ -126,7 +126,7 @@ class JavaHarnessGeneratorTest {
     @Test
     void generate_throwsIllegalArgumentException_forUnsupportedParameterType() {
         JudgeJobCreatedEvent job = new JudgeJobCreatedEvent(
-                java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), java.util.UUID.randomUUID(),
+                java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), null,
                 "JAVA", "class Solution {}", "foo", "int",
                 List.of(new JudgeJobCreatedEvent.ParameterPayload("node", "ListNode")),
                 2000, 256, List.of());
@@ -139,7 +139,7 @@ class JavaHarnessGeneratorTest {
     @Test
     void generate_throwsIllegalArgumentException_forUnsupportedReturnType() {
         JudgeJobCreatedEvent job = new JudgeJobCreatedEvent(
-                java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), java.util.UUID.randomUUID(),
+                java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), java.util.UUID.randomUUID(), null,
                 "JAVA", "class Solution {}", "foo", "TreeNode",
                 List.of(),
                 2000, 256, List.of());

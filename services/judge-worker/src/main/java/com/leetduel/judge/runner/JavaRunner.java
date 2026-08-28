@@ -2,8 +2,8 @@ package com.leetduel.judge.runner;
 
 import com.leetduel.judge.harness.JavaHarnessGenerator;
 import com.leetduel.judge.job.JudgeJobCreatedEvent;
-import com.leetduel.judge.sandbox.DockerSandboxService;
 import com.leetduel.judge.sandbox.ExecResult;
+import com.leetduel.judge.sandbox.SandboxSession;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
@@ -40,14 +40,14 @@ public class JavaRunner implements LanguageRunner {
     // JavaHarnessGenerator, the actual novel piece of this phase. Both
     // files compile together since Main references Solution directly.
     @Override
-    public CompileResult compile(DockerSandboxService sandbox, String containerId, JudgeJobCreatedEvent job) {
+    public CompileResult compile(SandboxSession sandbox, JudgeJobCreatedEvent job) {
         String mainSource = JavaHarnessGenerator.generate(job);
 
-        sandbox.copyFiles(containerId, Map.of(
+        sandbox.copyFiles(Map.of(
                 "Solution.java", job.sourceCode(),
                 "Main.java", mainSource));
 
-        ExecResult result = sandbox.exec(containerId,
+        ExecResult result = sandbox.exec(
                 List.of("javac", "-cp", jsonLibPath, "Solution.java", "Main.java"), COMPILE_TIMEOUT_MS);
         if (result.exitCode() == null || result.exitCode() != 0) {
             return CompileResult.failed(result.stderr());
@@ -56,10 +56,10 @@ public class JavaRunner implements LanguageRunner {
     }
 
     @Override
-    public TestCaseOutcome runTestCase(DockerSandboxService sandbox, String containerId,
+    public TestCaseOutcome runTestCase(SandboxSession sandbox,
             JudgeJobCreatedEvent.TestCasePayload testCase, int timeLimitMs) {
         long start = System.currentTimeMillis();
-        ExecResult result = sandbox.exec(containerId,
+        ExecResult result = sandbox.exec(
                 List.of("java", "-cp", ".:" + jsonLibPath, "Main", testCase.input()), timeLimitMs);
         long runtimeMs = System.currentTimeMillis() - start;
         return TestCaseEvaluator.evaluate(testCase.ordinal(), result, testCase.expectedOutput(), objectMapper, runtimeMs);

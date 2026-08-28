@@ -28,7 +28,16 @@ import { getAccessToken } from "@/lib/auth";
 // docs/goals.md's Phase 3 plan: the Gateway's ProxyWebFilter has no
 // WebSocket-upgrade support). Falls back to the compose-default port if
 // unset, same pattern as the Gateway/Auth base URLs in lib/api.ts.
-const WS_GATEWAY_URL = process.env.NEXT_PUBLIC_WS_GATEWAY_URL ?? "ws://localhost:8090/ws";
+const configuredWsGatewayUrl = process.env.NEXT_PUBLIC_WS_GATEWAY_URL;
+
+function getWsGatewayUrl() {
+  if (configuredWsGatewayUrl) return configuredWsGatewayUrl;
+  if (typeof window !== "undefined") {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.host}/ws`;
+  }
+  return "ws://localhost:8090/ws";
+}
 
 const SUBMISSION_POLL_INTERVAL_MS = 1500;
 const SUBMISSION_MAX_POLLS = 40;
@@ -117,7 +126,7 @@ export default function DuelPage() {
     if (!token) return;
 
     const client = new Client({
-      brokerURL: WS_GATEWAY_URL,
+      brokerURL: getWsGatewayUrl(),
       // STOMP CONNECT frame header, not an HTTP Authorization header - a
       // browser can't set that on a native WS upgrade request. Validated
       // by StompAuthChannelInterceptor on the ws-gateway side.

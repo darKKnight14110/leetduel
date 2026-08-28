@@ -14,6 +14,7 @@ Thumbs.db
 # Java / Maven / Gradle
 target/
 build/
+services/*/bin/
 *.class
 .gradle/
 
@@ -22,6 +23,9 @@ node_modules/
 dist/
 .env
 .env.local
+deploy/.env.k8s.local
+deploy/helm/leetduel/charts/
+.phase6-rendered.yaml
 
 # Logs
 *.log

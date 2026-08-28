@@ -147,16 +147,17 @@ Delivered:
 8. **Verification evidence:** frontend lint, typecheck, 10 Vitest tests, and the offline production build pass locally. The browser pass confirmed the professional landing-page copy, responsive shell, mobile menu, protected redirects, branded 404, and no console errors.
 9. **Demo checkpoint:** a user can sign in, browse a problem, edit a real Monaco buffer, switch languages without losing drafts, find a match, view public usernames on rankings, and inspect a readable profile history.
 
-### Phase 6 — Kubernetes deployment
+### Phase 6 — Kubernetes deployment (done)
 Prerequisite reading: §9 (K8s/Helm)
 
-Plan:
-1. Containerize every service (Dockerfile per service).
-2. Write k8s manifests or a Helm chart per service (Deployment, Service, ConfigMap/Secret for config).
-3. StatefulSets or Helm charts (e.g. Bitnami) for Postgres, Redis, and RabbitMQ.
-4. HPA (Horizontal Pod Autoscaler) on at least the Judge Worker (the natural bursty-load service) and API Gateway.
-5. Deploy to local cluster (minikube or Docker Desktop's k8s), verify full flow works identically to docker-compose.
-6. **Demo checkpoint:** `kubectl get pods` shows everything healthy, full user flow (signup → practice submit → duel → leaderboard) works against the k8s-deployed stack.
+Delivered:
+1. Added pinned `postgresql`, `redis`, and `rabbitmq` Bitnami dependencies to the single `deploy/helm/leetduel` platform chart. PVCs are enabled by default, application images use `IfNotPresent`, and one namespace-scoped Secret is populated from ignored local input.
+2. Added Dockerfiles for every application image, a standalone Next.js image, and a larger Judge Executor image containing JDK 21, Python 3.12, `timeout`, and the pinned `org.json` runtime library. Frontend production defaults compile API calls to same-origin `/api`; WebSocket code derives `ws:` or `wss:` from the browser host unless explicitly overridden.
+3. Added Deployments, ClusterIP Services, probes, Ingress, Gateway and Dispatcher HPAs, Dispatcher RBAC, and an executor deny-egress NetworkPolicy. Kubernetes Service DNS replaces localhost only in the deployment layer; local defaults remain intact for Compose/development.
+4. Replaced the Kubernetes judge path's host Docker socket with a Dispatcher/Executor boundary. The Dispatcher owns RabbitMQ and Kubernetes access, creates/reuses `judge-<submissionId>`, stores the original event in an immutable ConfigMap, reconciles completed Jobs, publishes the unchanged result event, then cleans up. The Executor has no broker credentials or ServiceAccount token and emits one framed result to logs after running one submission locally.
+5. Preserved at-least-once semantics and terminal idempotency. RabbitMQ redelivery reuses deterministic resources; a Dispatcher crash before publish leaves work to reconciliation; a crash after publish may duplicate `submission.judged`, which Submission Service safely ignores after terminal status.
+6. Added `scripts/bootstrap-minikube.ps1`, `scripts/build-minikube-images.ps1`, `scripts/deploy-minikube.ps1`, and `scripts/reset-minikube-data.ps1`. Validate with `helm dependency build deploy/helm/leetduel`, `helm lint deploy/helm/leetduel`, and `helm template ...`; run full browser acceptance once Docker/Minikube is available.
+7. **Demo checkpoint:** use the scripts to deploy the Helm release, confirm every application rolls out with probes and every stateful dependency has a PVC, then exercise signup, login, practice judging, two-player matching, WebSocket progress, leaderboard changes, and profile history through the printed Ingress hostname. Kubernetes Job cold-start latency is an explicit local-demo trade-off for removing root-equivalent Docker socket access.
 
 ### Phase 7 — Observability
 Prerequisite reading: §10 (Prometheus/Grafana/Micrometer)
@@ -173,4 +174,4 @@ Plan:
 
 ## Remaining open design questions
 
-Tracked in full in `goals.md`'s "Open questions / deferred decisions": exact data model for the not-yet-built Leaderboard Service, judge anti-cheat scope, testing strategy, CI/CD pipeline, and k8s manifest layout. Resolved incrementally as each phase lands, not as a blocking upfront pass. (Matchmaking join-request expiry was resolved in Phase 2; Duel/Match's schema, WS auth, and cross-instance fanout were resolved in Phase 3.)
+Tracked in full in `goals.md`'s "Open questions / deferred decisions": CI/CD, observability, TLS, distributed tracing, KEDA, anti-cheat, and production multi-tenant hardening. Phase 6 resolves the chart layout, stateful dependency strategy, and Kubernetes judge boundary. (Matchmaking join-request expiry was resolved in Phase 2; Duel/Match's schema, WS auth, and cross-instance fanout were resolved in Phase 3.)

@@ -8,6 +8,7 @@ import com.github.dockerjava.transport.DockerHttpClient;
 import com.github.dockerjava.zerodep.ZerodepDockerHttpClient;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 
 import java.time.Duration;
 
@@ -22,6 +23,7 @@ import java.time.Duration;
 // platform default socket) - inside this containerized service that
 // resolves to the mounted /var/run/docker.sock, no explicit host needed.
 @Configuration
+@Profile("docker")
 public class DockerClientFactory {
 
     @Bean

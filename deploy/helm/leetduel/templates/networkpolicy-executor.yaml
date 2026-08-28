@@ -1,0 +1,13 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: judge-executor-deny-egress
+  labels:
+    {{- include "leetduel.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      leetduel.io/job-kind: judge-executor
+  policyTypes:
+    - Egress
+  egress: []

@@ -7,7 +7,7 @@ It is built as a backend-heavy systems project rather than a CRUD application wi
 ## Resume summary
 
 - Designed and implemented a Java 21 / Spring Boot microservices platform with ten independently deployable backend services and a Next.js frontend.
-- Built an asynchronous judge pipeline with RabbitMQ and ephemeral Docker sandboxes for Python and Java submissions, including CPU, memory, timeout, network, non-root, and read-only filesystem controls.
+- Built an asynchronous judge pipeline with RabbitMQ and deterministic Kubernetes Jobs for Python and Java submissions, including CPU, memory, timeout, deny-egress, non-root, and read-only filesystem controls; retained a Docker profile for local Compose.
 - Implemented horizontally safe ELO matchmaking with Redis sorted sets and atomic Lua scripts, plus optimistic-lock-guarded duel completion and transactional outbox publishing.
 - Implemented STOMP real-time duel updates through a standalone WebSocket gateway using RabbitMQ to Redis Pub/Sub to local broker fanout.
 - Added a Redis materialized leaderboard with global, weekly, and seasonal rankings, atomic period-score idempotency, rank lookup, and surrounding-player queries.
@@ -42,8 +42,10 @@ flowchart TB
 
     AUTH -->|"transactional outbox"| MQ[(RabbitMQ)]
     SUB -->|"judge job"| MQ
-    MQ --> JUDGE["Judge Worker pool"]
-    JUDGE --> SANDBOX[["Ephemeral Docker sandbox<br/>Python 3.12 / Java 21"]]
+    MQ --> JUDGE["Judge Dispatcher"]
+    JUDGE --> JOB[["Kubernetes Job per submission"]]
+    JOB --> EXEC["Judge Executor<br/>non-root, no network"]
+    EXEC -->|"framed result in Pod logs"| JUDGE
     JUDGE -->|"submission.judged"| MQ
 
     MATCH -->|"atomic ELO pairing"| REDIS[(Redis)]
@@ -71,7 +73,7 @@ flowchart TB
 | User/Profile Service | ELO, match stats, rating history, public identity/profile reads | Spring Data JPA, PostgreSQL |
 | Problem Service | Problems, tags, difficulty, test cases, language stubs | Spring Data JPA, PostgreSQL |
 | Submission Service | Submission metadata, judge-job publication, verdict reads | Spring Data JPA, PostgreSQL JSONB |
-| Judge Worker | Sandboxed Python/Java execution and verdict publication | Spring AMQP, Docker Engine |
+| Judge Worker | Dispatches deterministic Kubernetes Jobs and publishes verdicts; local Compose keeps the Docker profile | Spring AMQP, Fabric8, Docker Engine |
 | Matchmaking Service | ELO queueing, expanding-window pairing, expiry | Redis sorted sets, Lua, RabbitMQ |
 | Duel Service | Match state, progress, timeout/winner resolution, ELO calculation | PostgreSQL, optimistic locking |
 | WS Gateway | Authenticated STOMP connections and horizontally scalable event fanout | WebSocket, RabbitMQ, Redis Pub/Sub |
@@ -121,7 +123,7 @@ This lets two players connected to different WS Gateway instances receive the sa
 
 - JWT verification occurs at the API Gateway for HTTP and on the STOMP `CONNECT` frame for WebSocket.
 - The Gateway strips caller-supplied identity headers before adding verified `X-User-Id` headers.
-- Judge containers run with no network, a read-only root filesystem, non-root execution, resource limits, and forced cleanup.
+- Judge executor Jobs run with no egress, a read-only root filesystem, non-root execution, dropped capabilities, resource limits, a deadline, and forced cleanup. The Kubernetes dispatcher owns RabbitMQ and Kubernetes credentials; untrusted code receives neither.
 - Duel completion uses JPA optimistic locking so simultaneous submissions or timeout races cannot publish two winners.
 - RabbitMQ queues and the transactional outbox tolerate service restarts; idempotent consumers tolerate redelivery.
 - MongoDB is not required anywhere in the current build.
@@ -134,9 +136,9 @@ This lets two players connected to different WS Gateway instances receive the sa
 | Persistence | PostgreSQL, Spring Data JPA, Flyway, JSONB |
 | Messaging | RabbitMQ, transactional outbox, Jackson message conversion |
 | Hot state | Redis, sorted sets, Pub/Sub, atomic Lua scripts |
-| Code execution | Docker Engine, docker-java, Python 3.12, Java 21 |
+| Code execution | Kubernetes Jobs, Fabric8, Python 3.12, Java 21; Docker profile for Compose |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4, Monaco, STOMP.js, Vitest |
-| Planned next | Kubernetes/Helm deployment and Prometheus/Grafana dashboards |
+| Planned next | Prometheus/Grafana observability, CI/CD, and production hardening |
 
 ## Run locally
 
@@ -197,6 +199,28 @@ Open [http://localhost:3000](http://localhost:3000). The frontend uses Auth Serv
 
 Local admin credentials are `leetduel` / `leetduel_dev` where applicable. They are development-only credentials.
 
+## Run on Minikube
+
+Phase 6 deploys the complete platform through one Helm chart. PostgreSQL, Redis, and RabbitMQ use pinned Bitnami dependencies and enabled PVCs; application images stay in Minikube's local image store with `IfNotPresent` pulls. The bootstrap selects Calico so the executor's deny-egress NetworkPolicy is enforced rather than merely rendered.
+
+```powershell
+Copy-Item deploy/.env.k8s.local.example deploy/.env.k8s.local
+# Replace every value in deploy/.env.k8s.local before continuing.
+./scripts/bootstrap-minikube.ps1
+./scripts/build-minikube-images.ps1
+./scripts/deploy-minikube.ps1
+```
+
+The deploy script creates the namespace-scoped `leetduel-secrets` Secret from the ignored local file, derives a `nip.io` hostname from `minikube ip`, builds pinned chart dependencies, and performs a waited Helm upgrade. Open the printed URL to exercise the same-origin frontend, `/api` Gateway, and `/ws` WebSocket paths.
+
+Reset only disposable demo data with the explicit command below. It deletes the `leetduel` namespace and its PVCs, but does not touch other Minikube workloads.
+
+```powershell
+./scripts/reset-minikube-data.ps1
+```
+
+The dispatcher acknowledges a RabbitMQ judge job only after creating or reusing the deterministic `judge-<submissionId>` Job. A completed Job's ConfigMap input and Pod log are reconciled on startup and periodically; the result is published before cleanup. A crash after publication can redeliver the result, which is safe because Submission Service ignores terminal duplicate results. This is at-least-once delivery with no Kafka replay, intentionally scoped to a local Minikube deployment.
+
 ## Verification
 
 Frontend checks:
@@ -210,6 +234,8 @@ npm run build
 ```
 
 Phase 5 evidence: the frontend gate passes with 10 Vitest tests, lint, typecheck, and an offline production build. `agent-browser` checks at desktop and mobile widths covered the landing page, responsive navigation, protected-page redirects, branded 404, screenshots, keyboard-visible focus, and zero console errors. Backend controller contract tests cover the bounded identity and problem-summary response shapes and request limits.
+
+Phase 6 evidence: `helm dependency build`, `helm lint`, and `helm template` pass for the platform chart. Judge unit tests cover deterministic Job input/security configuration, framed result parsing, sandbox orchestration, timeouts, and terminal duplicate safety. Full Minikube acceptance requires a running Docker daemon; the scripts above are the reproducible acceptance path.
 
 Backend checks can be run per service:
 
@@ -228,6 +254,7 @@ The most valuable integration checks use Testcontainers for Redis Lua-script con
 - Phase 3: real-time duel lifecycle and WebSocket fanout complete.
 - Phase 4: leaderboard, profile stats, ELO history, and match history complete.
 - Phase 5: ship-ready frontend, Monaco editor, identity enrichment, responsive navigation, and UI tests complete.
-- Next: Kubernetes deployment, then Prometheus/Grafana observability.
+- Phase 6: Minikube/Helm deployment, Kubernetes-native judge Jobs, executor isolation, probes, PVCs, Ingress, and HPAs complete.
+- Next: Prometheus/Grafana observability, then CI/CD and production hardening.
 
 For the deeper design rationale and learning path, see [`docs/goals.md`](docs/goals.md) and [`docs/LEARN_AND_BUILD.md`](docs/LEARN_AND_BUILD.md).
